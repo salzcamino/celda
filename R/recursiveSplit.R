@@ -4,12 +4,17 @@
                           K,
                           minCell = 3,
                           alpha = 1,
-                          beta = 1) {
+                          beta = 1,
+                          nCores = 1) {
   zTa <- tabulate(z, K)
   zToSplit <- which(zTa > minCell)
-  bestZ <- z
-  bestLl <- -Inf
-  for (i in zToSplit) {
+
+  if (length(zToSplit) == 0) {
+    return(list(ll = -Inf, z = z))
+  }
+
+  # Function to test splitting a single cell population
+  testSplit <- function(i) {
     clustLabel <- .celda_C(
       counts[, z == i, drop = FALSE],
       K = 2,
@@ -24,13 +29,29 @@
       newZ <- z
       newZ[ix] <- ifelse(celdaClusters(clustLabel)$z == 2, i, K)
       ll <- .logLikelihoodcelda_C(counts, s, newZ, K, alpha, beta)
-
-      if (ll > bestLl) {
-        bestZ <- newZ
-        bestLl <- ll
-      }
+      return(list(ll = ll, newZ = newZ))
+    } else {
+      return(list(ll = -Inf, newZ = z))
     }
   }
+
+  # Run splits in parallel or serial
+  if (nCores > 1 && length(zToSplit) > 1) {
+    results <- parallel::mclapply(zToSplit, testSplit, mc.cores = nCores)
+  } else {
+    results <- lapply(zToSplit, testSplit)
+  }
+
+  # Find best split
+  bestLl <- -Inf
+  bestZ <- z
+  for (result in results) {
+    if (result$ll > bestLl) {
+      bestLl <- result$ll
+      bestZ <- result$newZ
+    }
+  }
+
   return(list(ll = bestLl, z = bestZ))
 }
 
@@ -41,14 +62,17 @@
                           minFeature = 3,
                           beta = 1,
                           delta = 1,
-                          gamma = 1) {
+                          gamma = 1,
+                          nCores = 1) {
   yTa <- tabulate(y, L)
   yToSplit <- which(yTa > minFeature)
 
-  bestY <- y
-  bestLl <- -Inf
-  # previousY <- y
-  for (i in yToSplit) {
+  if (length(yToSplit) == 0) {
+    return(list(ll = -Inf, y = y))
+  }
+
+  # Function to test splitting a single module
+  testSplit <- function(i) {
     clustLabel <- .celda_G(counts[y == i, , drop = FALSE],
       L = 2,
       yInitialize = "random",
@@ -63,13 +87,29 @@
       newY <- y
       newY[ix] <- ifelse(celdaClusters(clustLabel)$y == 2, i, L)
       ll <- .logLikelihoodcelda_G(counts, newY, L, beta, delta, gamma)
-
-      if (ll > bestLl) {
-        bestY <- newY
-        bestLl <- ll
-      }
+      return(list(ll = ll, newY = newY))
+    } else {
+      return(list(ll = -Inf, newY = y))
     }
   }
+
+  # Run splits in parallel or serial
+  if (nCores > 1 && length(yToSplit) > 1) {
+    results <- parallel::mclapply(yToSplit, testSplit, mc.cores = nCores)
+  } else {
+    results <- lapply(yToSplit, testSplit)
+  }
+
+  # Find best split
+  bestLl <- -Inf
+  bestY <- y
+  for (result in results) {
+    if (result$ll > bestLl) {
+      bestLl <- result$ll
+      bestY <- result$newY
+    }
+  }
+
   return(list(ll = bestLl, y = bestY))
 }
 
@@ -942,6 +982,9 @@ setMethod("recursiveSplitCell",
 #' @param seed Integer. Passed to \link[withr]{with_seed}. For reproducibility,
 #'  a default value of 12345 is used. If NULL, no calls to
 #'  \link[withr]{with_seed} are made.
+#' @param nCores Integer. Number of CPU cores to use for parallel processing
+#'  when testing module splits. Values > 1 will use parallel::mclapply (not
+#'  available on Windows). Default \code{1} (no parallelization).
 #' @param perplexity Logical. Whether to calculate perplexity for each model.
 #'  If FALSE, then perplexity can be calculated later with
 #'  \link{resamplePerplexity}. Default \code{TRUE}.
@@ -978,6 +1021,7 @@ setGeneric("recursiveSplitModule",
         minFeature = 3,
         reorder = TRUE,
         seed = 12345,
+        nCores = 1,
         perplexity = TRUE,
         doResampling = FALSE,
         numResample = 5,
@@ -1016,6 +1060,7 @@ setMethod("recursiveSplitModule",
         minFeature = 3,
         reorder = TRUE,
         seed = 12345,
+        nCores = 1,
         perplexity = TRUE,
         doResampling = FALSE,
         numResample = 5,
@@ -1056,6 +1101,7 @@ setMethod("recursiveSplitModule",
             minFeature = minFeature,
             reorder = reorder,
             seed = seed,
+            nCores = nCores,
             perplexity = perplexity,
             doResampling = doResampling,
             numResample = numResample,
@@ -1119,6 +1165,7 @@ setMethod("recursiveSplitModule",
         minFeature = 3,
         reorder = TRUE,
         seed = 12345,
+        nCores = 1,
         perplexity = TRUE,
         doResampling = FALSE,
         numResample = 5,
@@ -1150,6 +1197,7 @@ setMethod("recursiveSplitModule",
             minFeature = minFeature,
             reorder = reorder,
             seed = seed,
+            nCores = nCores,
             perplexity = perplexity,
             doResampling = doResampling,
             numResample = numResample,
@@ -1195,6 +1243,7 @@ setMethod("recursiveSplitModule",
     minFeature,
     reorder,
     seed,
+    nCores,
     perplexity,
     doResampling,
     numResample,
@@ -1215,6 +1264,7 @@ setMethod("recursiveSplitModule",
             gamma = gamma,
             minFeature = minFeature,
             reorder = reorder,
+            nCores = nCores,
             perplexity = perplexity,
             verbose = verbose,
             logfile = logfile,
@@ -1235,6 +1285,7 @@ setMethod("recursiveSplitModule",
                 gamma = gamma,
                 minFeature = minFeature,
                 reorder = reorder,
+                nCores = nCores,
                 perplexity = perplexity,
                 verbose = verbose,
                 logfile = logfile,
@@ -1259,6 +1310,7 @@ setMethod("recursiveSplitModule",
                                  gamma = 1,
                                  minFeature = 3,
                                  reorder = TRUE,
+                                 nCores = 1,
                                  perplexity = TRUE,
                                  verbose = TRUE,
                                  logfile = NULL,
@@ -1338,7 +1390,18 @@ setMethod("recursiveSplitModule",
     currentL <- length(unique(celdaClusters(modelInitial)$y)) + 1
     overallY <- as.integer(celdaClusters(modelInitial)$y)
 
-    resList <- list(modelInitial)
+    # Pre-allocate resList and parameter tracking vectors
+    maxModels <- maxL - initialL + 1
+    resList <- vector("list", length = maxModels)
+    runL <- integer(maxModels)
+    runK <- integer(maxModels)
+    logliks <- numeric(maxModels)
+    resList[[1]] <- modelInitial
+    runL[1] <- params(modelInitial)$L
+    runK[1] <- params(modelInitial)$K
+    logliks[1] <- bestLogLikelihood(modelInitial)
+    modelIndex <- 2
+
     while (currentL <= maxL) {
       # Allow features to cluster further with celda_CG
       tempSplit <- .singleSplitY(
@@ -1348,7 +1411,8 @@ setMethod("recursiveSplitModule",
         minFeature = 3,
         beta = beta,
         delta = delta,
-        gamma = gamma
+        gamma = gamma,
+        nCores = nCores
       )
       tempModel <- .celda_CG(
         counts,
@@ -1378,16 +1442,14 @@ setMethod("recursiveSplitModule",
         verbose = verbose,
         logfile = NULL
       )
-      resList <- c(resList, list(tempModel))
+      resList[[modelIndex]] <- tempModel
+      runL[modelIndex] <- params(tempModel)$L
+      runK[modelIndex] <- params(tempModel)$K
+      logliks[modelIndex] <- bestLogLikelihood(tempModel)
+      modelIndex <- modelIndex + 1
       currentL <- currentL + 1
     }
 
-    runK <- vapply(resList, function(mod) {
-      params(mod)$K
-    }, integer(1))
-    runL <- vapply(resList, function(mod) {
-      params(mod)$L
-    }, integer(1))
     runParams <- data.frame(
       index = seq.int(1, length(resList)),
       L = runL,
@@ -1433,14 +1495,28 @@ setMethod("recursiveSplitModule",
 
     ## Decomposed counts for full count matrix
     p <- .cGDecomposeCounts(counts, overallY, currentL)
-    nTSByC <- p$nTSByC
-    nByTS <- p$nByTS
-    nGByTS <- p$nGByTS
     nByG <- p$nByG
     nG <- p$nG
     nM <- p$nM
 
-    resList <- list(modelInitial)
+    # Pre-allocate matrices/vectors to maxL size to avoid repeated rbind/c operations
+    nTSByC <- matrix(0L, nrow = maxL, ncol = ncol(p$nTSByC))
+    nTSByC[seq_len(nrow(p$nTSByC)), ] <- p$nTSByC
+    nByTS <- integer(maxL)
+    nByTS[seq_len(length(p$nByTS))] <- p$nByTS
+    nGByTS <- integer(maxL)
+    nGByTS[seq_len(length(p$nGByTS))] <- p$nGByTS
+
+    # Pre-allocate resList and parameter tracking vectors
+    maxModels <- maxL - initialL + 1
+    resList <- vector("list", length = maxModels)
+    runL <- integer(maxModels)
+    logliks <- numeric(maxModels)
+    resList[[1]] <- modelInitial
+    runL[1] <- params(modelInitial)$L
+    logliks[1] <- bestLogLikelihood(modelInitial)
+    modelIndex <- 2
+
     while (currentL <= maxL) {
       # Allow features to cluster further
       previousY <- overallY
@@ -1451,7 +1527,8 @@ setMethod("recursiveSplitModule",
         minFeature = 3,
         beta = beta,
         delta = delta,
-        gamma = gamma
+        gamma = gamma,
+        nCores = nCores
       )
       tempModel <- .celda_G(
         countsZ,
@@ -1467,26 +1544,26 @@ setMethod("recursiveSplitModule",
       )
       overallY <- as.integer(celdaClusters(tempModel)$y)
 
-      # Adjust decomposed count matrices
+      # Adjust decomposed count matrices (update in-place in pre-allocated arrays)
       p <- .cGReDecomposeCounts(counts,
         overallY,
         previousY,
-        nTSByC,
+        nTSByC[seq_len(currentL), , drop = FALSE],
         nByG,
         L = currentL
       )
-      nTSByC <- p$nTSByC
-      nByTS <- p$nByTS
-      nGByTS <- p$nGByTS
+      nTSByC[seq_len(currentL), ] <- p$nTSByC
+      nByTS[seq_len(currentL)] <- p$nByTS
+      nGByTS[seq_len(currentL)] <- p$nGByTS
       previousY <- overallY
 
       ## Create the final model object with correct info on full counts
       ## matrix
       tempModel@finalLogLik <- .cGCalcLL(
-        nTSByC = nTSByC,
-        nByTS = nByTS,
+        nTSByC = nTSByC[seq_len(currentL), , drop = FALSE],
+        nByTS = nByTS[seq_len(currentL)],
         nByG = nByG,
-        nGByTS = nGByTS,
+        nGByTS = nGByTS[seq_len(currentL)],
         nM = nM,
         nG = nG,
         L = currentL,
@@ -1497,11 +1574,6 @@ setMethod("recursiveSplitModule",
       tempModel@completeLogLik <- bestLogLikelihood(tempModel)
       tempModel@params$countChecksum <- countChecksum
       tempModel@names <- names
-
-      ## Add extra row/column for next round of L
-      nTSByC <- rbind(nTSByC, rep(0L, ncol(nTSByC)))
-      nByTS <- c(nByTS, 0L)
-      nGByTS <- c(nGByTS, 0L)
 
       ## Add new model to results list and increment L
       .logMessages(
@@ -1514,13 +1586,13 @@ setMethod("recursiveSplitModule",
         verbose = verbose,
         logfile = NULL
       )
-      resList <- c(resList, list(tempModel))
+      resList[[modelIndex]] <- tempModel
+      runL[modelIndex] <- params(tempModel)$L
+      logliks[modelIndex] <- bestLogLikelihood(tempModel)
+      modelIndex <- modelIndex + 1
       currentL <- currentL + 1
     }
 
-    runL <- vapply(resList, function(mod) {
-      params(mod)$L
-    }, integer(1))
     runParams <- data.frame(
       index = seq.int(1, length(resList)),
       L = runL,
@@ -1547,7 +1619,16 @@ setMethod("recursiveSplitModule",
     currentL <- length(unique(overallY)) + 1
 
     ## Perform splitting for y labels
-    resList <- list(modelInitial)
+    # Pre-allocate resList and parameter tracking vectors
+    maxModels <- maxL - initialL + 1
+    resList <- vector("list", length = maxModels)
+    runL <- integer(maxModels)
+    logliks <- numeric(maxModels)
+    resList[[1]] <- modelInitial
+    runL[1] <- params(modelInitial)$L
+    logliks[1] <- bestLogLikelihood(modelInitial)
+    modelIndex <- 2
+
     while (currentL <= maxL) {
       # Allow features to cluster further
       previousY <- overallY
@@ -1558,7 +1639,8 @@ setMethod("recursiveSplitModule",
         minFeature = 3,
         beta = beta,
         delta = delta,
-        gamma = gamma
+        gamma = gamma,
+        nCores = nCores
       )
       tempModel <- .celda_G(
         counts,
@@ -1585,13 +1667,13 @@ setMethod("recursiveSplitModule",
         verbose = verbose,
         logfile = NULL
       )
-      resList <- c(resList, list(tempModel))
+      resList[[modelIndex]] <- tempModel
+      runL[modelIndex] <- params(tempModel)$L
+      logliks[modelIndex] <- bestLogLikelihood(tempModel)
+      modelIndex <- modelIndex + 1
       currentL <- currentL + 1
     }
 
-    runL <- vapply(resList, function(mod) {
-      params(mod)$L
-    }, integer(1))
     runParams <- data.frame(
       index = seq.int(1, length(resList)),
       L = runL,
@@ -1599,10 +1681,7 @@ setMethod("recursiveSplitModule",
     )
   }
 
-  ## Summarize parameters of different models
-  logliks <- vapply(resList, function(mod) {
-    bestLogLikelihood(mod)
-  }, double(1))
+  ## Summarize parameters of different models (already collected during loop)
   runParams <- data.frame(runParams,
     log_likelihood = logliks,
     stringsAsFactors = FALSE
