@@ -37,6 +37,9 @@
 #'   number of features after filtering for \code{minCell} and \code{minCount}
 #'   are greater than \code{maxFeature}, then Seurat's VST function is used to
 #'   select the top variable features. Default \code{5000}.
+#' @param nCores Integer. Number of CPU cores to use for parallel processing
+#'   when testing module splits in \link{recursiveSplitModule}. Values > 1 will
+#'   use parallel::mclapply (not available on Windows). Default \code{1}.
 #' @param reducedDimName Character. Name of the reduced dimensional object to be
 #'   used in 2-D scatter plots throughout the report. Default \code{celda_UMAP}.
 #' @param features Character vector.  Expression of these features will be
@@ -107,6 +110,7 @@ reportCeldaCGRun <-
            minCell = 3,
            minCount = 3,
            maxFeatures = 5000,
+           nCores = 1,
            output_file = "CeldaCG_RunReport",
            output_sce_prefix = "celda_cg",
            output_dir = ".",
@@ -132,6 +136,7 @@ reportCeldaCGRun <-
         minCell = minCell,
         minCount = minCount,
         maxFeatures = maxFeatures,
+        nCores = nCores,
         sceFile = sceFile,
         pdf = isTRUE(pdf),
         showSession = isTRUE(showSession)

@@ -1115,7 +1115,8 @@ addLogLikelihood <- function(llA, llB) {
            dbscanEps = 1.0,
            verbose = TRUE,
            seed = 12345,
-           logfile = NULL) {
+           logfile = NULL,
+           nCores = 1) {
     if (!is(object, "SingleCellExperiment")) {
       sce <- SingleCellExperiment::SingleCellExperiment(
         assays =
@@ -1154,12 +1155,14 @@ addLogLikelihood <- function(llA, llB) {
     L <- min(L, nrow(countsFiltered))
     if (is.null(seed)) {
       initialModuleSplit <- recursiveSplitModule(countsFiltered,
-        initialL = L, maxL = L, perplexity = FALSE, verbose = FALSE
+        initialL = L, maxL = L, perplexity = FALSE, verbose = FALSE,
+        nCores = nCores
       )
     } else {
       with_seed(seed,
                 initialModuleSplit <- recursiveSplitModule(countsFiltered,
-        initialL = L, maxL = L, perplexity = FALSE, verbose = FALSE
+        initialL = L, maxL = L, perplexity = FALSE, verbose = FALSE,
+        nCores = nCores
       ))
     }
     initialModel <- subsetCeldaList(initialModuleSplit, list(L = L))

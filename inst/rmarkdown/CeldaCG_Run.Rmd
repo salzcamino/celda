@@ -22,6 +22,7 @@ params:
   minCell: minCell
   minCount: minCount
   maxFeatures: maxFeatures
+  nCores: 1
   sceFile: sceFile
   showSession: showSession
   pdf: pdf
@@ -56,6 +57,7 @@ minCell <- params$minCell
 minCount <- params$minCount
 sceFile <- params$sceFile
 maxFeatures <- params$maxFeatures
+nCores <- params$nCores
 pdf <- params$pdf
 showSession <- params$showSession
 
@@ -129,7 +131,8 @@ moduleSplit <-
     maxL = maxL,
     sampleLabel = sampleLabel,
     altExpName = altExpName,
-    useAssay = useAssay
+    useAssay = useAssay,
+    nCores = nCores
   )
 
 # Plot perplexity to help choose L
