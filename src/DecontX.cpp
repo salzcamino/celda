@@ -322,6 +322,7 @@ Eigen::SparseMatrix<double> calculateNativeMatrix(const Eigen::MappedSparseMatri
   double pcontamin;
   double pnative;
   double normp;
+  int nr = phi.nrow();
   for (int j = 0; j < counts.cols(); ++j)
   {
     for (Eigen::MappedSparseMatrix<double>::InnerIterator i_(counts, j); i_; ++i_)
@@ -331,11 +332,13 @@ Eigen::SparseMatrix<double> calculateNativeMatrix(const Eigen::MappedSparseMatri
       k = z[j] - 1;
 
       // Calculate variational probabilities
-      pnative = log(phi(i, k) + pseudocount) + log(theta(j) + pseudocount);
-      pcontamin = log(eta(i, k) + pseudocount) + log(1 - theta(j) + pseudocount);
+      // Removing the log/exp speeds it up and produces the same result since
+      // there are only 2 probabilities being multiplied (same as in decontXEM)
+      pnative = (phi[nr * k + i] + pseudocount) * (theta[j] + pseudocount);
+      pcontamin = (eta[nr * k + i] + pseudocount) * (1 - theta[j] + pseudocount);
 
       // Normalize probabilities and add to proper components
-      normp = exp(pnative) / (exp(pcontamin) + exp(pnative));
+      normp = pnative / (pcontamin + pnative);
       native_matrix.coeffRef(i, j) *= normp;
     }
   }
