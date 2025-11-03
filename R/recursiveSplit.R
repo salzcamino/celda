@@ -171,6 +171,9 @@
 #' @param seed Integer. Passed to \link[withr]{with_seed}. For reproducibility,
 #'  a default value of 12345 is used. If NULL, no calls to
 #'  \link[withr]{with_seed} are made.
+#' @param nCores Integer. Number of CPU cores to use for parallel processing
+#'  when testing cell population splits. Values > 1 will use parallel::mclapply
+#'  (not available on Windows). Default \code{1} (no parallelization).
 #' @param perplexity Logical. Whether to calculate perplexity for each model.
 #'  If FALSE, then perplexity can be calculated later with
 #'  \link{resamplePerplexity}. Default TRUE.
@@ -207,6 +210,7 @@ setGeneric("recursiveSplitCell",
         minCell = 3,
         reorder = TRUE,
         seed = 12345,
+        nCores = 1,
         perplexity = TRUE,
         doResampling = FALSE,
         numResample = 5,
@@ -252,6 +256,7 @@ setMethod("recursiveSplitCell",
         minCell = 3,
         reorder = TRUE,
         seed = 12345,
+        nCores = 1,
         perplexity = TRUE,
         doResampling = FALSE,
         numResample = 5,
@@ -292,6 +297,7 @@ setMethod("recursiveSplitCell",
             minCell = minCell,
             reorder = reorder,
             seed = seed,
+            nCores = nCores,
             perplexity = perplexity,
             doResampling = doResampling,
             numResample = numResample,
@@ -362,6 +368,7 @@ setMethod("recursiveSplitCell",
         minCell = 3,
         reorder = TRUE,
         seed = 12345,
+        nCores = 1,
         perplexity = TRUE,
         doResampling = FALSE,
         numResample = 5,
@@ -393,6 +400,7 @@ setMethod("recursiveSplitCell",
             minCell = minCell,
             reorder = reorder,
             seed = seed,
+            nCores = nCores,
             perplexity = perplexity,
             doResampling = doResampling,
             numResample = numResample,
@@ -438,6 +446,7 @@ setMethod("recursiveSplitCell",
     minCell,
     reorder,
     seed,
+    nCores,
     perplexity,
     doResampling,
     numResample,
@@ -457,6 +466,7 @@ setMethod("recursiveSplitCell",
             gamma = gamma,
             minCell = minCell,
             reorder = reorder,
+            nCores = nCores,
             perplexity = perplexity,
             doResampling = doResampling,
             numResample = numResample,
@@ -477,6 +487,7 @@ setMethod("recursiveSplitCell",
                 gamma = gamma,
                 minCell = minCell,
                 reorder = reorder,
+                nCores = nCores,
                 perplexity = perplexity,
                 doResampling = doResampling,
                 numResample = numResample,
@@ -501,6 +512,7 @@ setMethod("recursiveSplitCell",
                                gamma,
                                minCell,
                                reorder,
+                               nCores,
                                perplexity,
                                doResampling,
                                numResample,
@@ -575,7 +587,19 @@ setMethod("recursiveSplitCell",
       reorder = reorder)
     currentK <- length(unique(celdaClusters(modelInitial)$z)) + 1
     overallZ <- as.integer(celdaClusters(modelInitial)$z)
-    resList <- list(modelInitial)
+
+    # Pre-allocate resList and parameter tracking vectors
+    maxModels <- maxK - initialK + 1
+    resList <- vector("list", length = maxModels)
+    runK <- integer(maxModels)
+    runL <- integer(maxModels)
+    logliks <- numeric(maxModels)
+    resList[[1]] <- modelInitial
+    runK[1] <- params(modelInitial)$K
+    runL[1] <- params(modelInitial)$L
+    logliks[1] <- bestLogLikelihood(modelInitial)
+    modelIndex <- 2
+
     while (currentK <= maxK) {
       # previousY <- overallY
       tempSplit <- .singleSplitZ(countsY,
@@ -584,7 +608,8 @@ setMethod("recursiveSplitCell",
         currentK,
         minCell = 3,
         alpha = alpha,
-        beta = beta
+        beta = beta,
+        nCores = nCores
       )
       tempModel <- .celda_CG(counts,
         sampleLabel = sampleLabel,
@@ -646,7 +671,12 @@ setMethod("recursiveSplitCell",
         )
       }
 
-      resList <- c(resList, list(tempModel))
+      resList[[modelIndex]] <- tempModel
+      runK[modelIndex] <- params(tempModel)$K
+      runL[modelIndex] <- params(tempModel)$L
+      logliks[modelIndex] <- bestLogLikelihood(tempModel)
+      modelIndex <- modelIndex + 1
+
       .logMessages(date(),
         ".. Current cell population",
         currentK,
@@ -659,12 +689,6 @@ setMethod("recursiveSplitCell",
       currentK <- length(unique(overallZ)) + 1
     }
 
-    runK <- vapply(resList, function(mod) {
-      params(mod)$K
-    }, integer(1))
-    runL <- vapply(resList, function(mod) {
-      params(mod)$L
-    }, integer(1))
     runParams <- data.frame(
       index = seq.int(1, length(resList)),
       L = as.integer(runL),
@@ -719,7 +743,16 @@ setMethod("recursiveSplitCell",
     modelInitial@completeLogLik <- ll
     modelInitial@finalLogLik <- ll
 
-    resList <- list(modelInitial)
+    # Pre-allocate resList and parameter tracking vectors
+    maxModels <- maxK - initialK + 1
+    resList <- vector("list", length = maxModels)
+    runK <- integer(maxModels)
+    logliks <- numeric(maxModels)
+    resList[[1]] <- modelInitial
+    runK[1] <- params(modelInitial)$K
+    logliks[1] <- bestLogLikelihood(modelInitial)
+    modelIndex <- 2
+
     while (currentK <= maxK) {
       # Find next best split, then do a new celda_C run with that split
       tempSplit <- .singleSplitZ(countsY,
@@ -728,7 +761,8 @@ setMethod("recursiveSplitCell",
         currentK,
         minCell = 3,
         alpha = alpha,
-        beta = beta
+        beta = beta,
+        nCores = nCores
       )
       tempModel <- .celda_C(countsY,
         sampleLabel = sampleLabel,
@@ -770,7 +804,11 @@ setMethod("recursiveSplitCell",
         names = names
       )
 
-      resList <- c(resList, list(tempModel))
+      resList[[modelIndex]] <- tempModel
+      runK[modelIndex] <- params(tempModel)$K
+      logliks[modelIndex] <- bestLogLikelihood(tempModel)
+      modelIndex <- modelIndex + 1
+
       .logMessages(date(),
         ".. Current cell population",
         currentK,
@@ -783,9 +821,6 @@ setMethod("recursiveSplitCell",
       currentK <- length(unique(overallZ)) + 1
     }
 
-    runK <- vapply(resList, function(mod) {
-      params(mod)$K
-    }, integer(1))
     runParams <- data.frame(
       index = seq.int(1, length(resList)),
       K = as.integer(runK),
@@ -813,7 +848,17 @@ setMethod("recursiveSplitCell",
     )
     currentK <- length(unique(celdaClusters(modelInitial)$z)) + 1
     overallZ <- as.integer(celdaClusters(modelInitial)$z)
-    resList <- list(modelInitial)
+
+    # Pre-allocate resList and parameter tracking vectors
+    maxModels <- maxK - initialK + 1
+    resList <- vector("list", length = maxModels)
+    runK <- integer(maxModels)
+    logliks <- numeric(maxModels)
+    resList[[1]] <- modelInitial
+    runK[1] <- params(modelInitial)$K
+    logliks[1] <- bestLogLikelihood(modelInitial)
+    modelIndex <- 2
+
     while (currentK <= maxK) {
       tempSplit <- .singleSplitZ(counts,
         overallZ,
@@ -821,7 +866,8 @@ setMethod("recursiveSplitCell",
         currentK,
         minCell = 3,
         alpha = alpha,
-        beta = beta
+        beta = beta,
+        nCores = nCores
       )
       tempModel <- .celda_C(counts,
         sampleLabel = sampleLabel,
@@ -860,7 +906,11 @@ setMethod("recursiveSplitCell",
         )
       }
 
-      resList <- c(resList, list(tempModel))
+      resList[[modelIndex]] <- tempModel
+      runK[modelIndex] <- params(tempModel)$K
+      logliks[modelIndex] <- bestLogLikelihood(tempModel)
+      modelIndex <- modelIndex + 1
+
       .logMessages(date(),
         ".. Current cell population",
         currentK,
@@ -873,9 +923,6 @@ setMethod("recursiveSplitCell",
       currentK <- length(unique(overallZ)) + 1
     }
 
-    runK <- vapply(resList, function(mod) {
-      params(mod)$K
-    }, integer(1))
     runParams <- data.frame(
       index = seq.int(1, length(resList)),
       K = as.integer(runK),
@@ -883,10 +930,7 @@ setMethod("recursiveSplitCell",
     )
   }
 
-  # Summarize paramters of different models
-  logliks <- vapply(resList, function(mod) {
-    bestLogLikelihood(mod)
-  }, double(1))
+  # Summarize paramters of different models (already collected during loop)
   runParams <- data.frame(runParams,
     log_likelihood = logliks,
     stringsAsFactors = FALSE
