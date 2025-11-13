@@ -288,6 +288,143 @@ tryCatch({
   cat("✗ Internal function testing failed:", conditionMessage(e), "\n\n")
 })
 
+# Test 8: Phase 3 - Batch Gibbs Sampling
+cat("Test 8: Testing Phase 3 - Batch Gibbs Sampling...\n")
+tryCatch({
+  data(celdaCSim)
+
+  # Test 8a: Standard Gibbs
+  cat("  8a: Testing standard Gibbs sampling...\n")
+  result_gibbs <- celda_C(
+    celdaCSim$counts,
+    K = 5,
+    algorithm = "Gibbs",
+    sampleLabel = celdaCSim$sampleLabel,
+    maxIter = 20,
+    splitOnIter = -1,  # Disable splitting for fair comparison
+    nchains = 1,
+    verbose = FALSE
+  )
+  cat("  ✓ Standard Gibbs works\n")
+
+  # Test 8b: Batch Gibbs
+  cat("  8b: Testing batch Gibbs sampling...\n")
+  result_batch <- celda_C(
+    celdaCSim$counts,
+    K = 5,
+    algorithm = "GibbsBatch",
+    sampleLabel = celdaCSim$sampleLabel,
+    maxIter = 20,
+    splitOnIter = -1,
+    nchains = 1,
+    verbose = FALSE
+  )
+  cat("  ✓ Batch Gibbs works\n")
+
+  # Test 8c: Compare quality
+  cat("  8c: Comparing clustering quality...\n")
+  z_gibbs <- celdaClusters(result_gibbs)$z
+  z_batch <- celdaClusters(result_batch)$z
+  ari <- mclust::adjustedRandIndex(z_gibbs, z_batch)
+  cat("      ARI between Gibbs and GibbsBatch:", round(ari, 3), "\n")
+
+  if (ari < 0.7) {
+    warning("      ⚠ ARI < 0.7 - batch Gibbs may produce different results")
+  } else {
+    cat("      ✓ Clustering quality maintained (ARI ≥ 0.7)\n")
+  }
+
+  cat("✓ Batch Gibbs tests completed\n\n")
+}, error = function(e) {
+  cat("✗ Batch Gibbs testing failed:", conditionMessage(e), "\n\n")
+})
+
+# Test 9: Phase 4 - Convergence Diagnostics
+cat("Test 9: Testing Phase 4 - Convergence Diagnostics...\n")
+tryCatch({
+  data(celdaCSim)
+
+  # Run a clustering
+  result <- celda_C(
+    celdaCSim$counts,
+    K = 5,
+    sampleLabel = celdaCSim$sampleLabel,
+    maxIter = 30,
+    nchains = 1,
+    verbose = FALSE
+  )
+
+  # Test 9a: Calculate cluster quality
+  cat("  9a: Testing celdaClusterQuality function...\n")
+  diag <- celdaClusterQuality(result, maxCells = 200)
+
+  # Verify structure
+  if (!is(diag, "celdaDiagnostics")) {
+    stop("celdaClusterQuality did not return celdaDiagnostics object")
+  }
+
+  if (!all(c("silhouette", "separation", "wcss", "summary") %in% names(diag))) {
+    stop("Missing expected diagnostic components")
+  }
+
+  cat("  ✓ celdaClusterQuality works\n")
+
+  # Test 9b: Print diagnostics
+  cat("  9b: Testing print method...\n")
+  print(diag)
+  cat("  ✓ Print method works\n")
+
+  # Test 9c: Plot diagnostics (if interactive)
+  if (interactive()) {
+    cat("  9c: Testing plot method...\n")
+    plot(diag)
+    cat("  ✓ Plot method works\n")
+  } else {
+    cat("  9c: Skipping plot test (non-interactive session)\n")
+  }
+
+  cat("✓ Convergence diagnostics tests completed\n\n")
+}, error = function(e) {
+  cat("✗ Convergence diagnostics testing failed:", conditionMessage(e), "\n\n")
+})
+
+# Test 10: Phase 5 - Smart Chain Management Parameters
+cat("Test 10: Testing Phase 5 - Smart Chain Management...\n")
+tryCatch({
+  data(celdaCSim)
+
+  # Test 10a: Early chain stop enabled
+  cat("  10a: Testing with early chain stopping enabled...\n")
+  result_early <- celda_C(
+    celdaCSim$counts[1:100, 1:50],  # Smaller dataset for speed
+    K = 3,
+    sampleLabel = celdaCSim$sampleLabel[1:50],
+    maxIter = 15,
+    nchains = 3,
+    earlyChainStop = TRUE,
+    earlyStopThreshold = 0.05,
+    verbose = FALSE
+  )
+  cat("  ✓ Early chain stopping parameter accepted\n")
+
+  # Test 10b: Early chain stop disabled
+  cat("  10b: Testing with early chain stopping disabled...\n")
+  result_no_early <- celda_C(
+    celdaCSim$counts[1:100, 1:50],
+    K = 3,
+    sampleLabel = celdaCSim$sampleLabel[1:50],
+    maxIter = 15,
+    nchains = 3,
+    earlyChainStop = FALSE,
+    verbose = FALSE
+  )
+  cat("  ✓ Disabling early chain stopping works\n")
+
+  cat("✓ Smart chain management tests completed\n\n")
+}, error = function(e) {
+  cat("✗ Smart chain management testing failed:", conditionMessage(e), "\n\n")
+})
+
 # Final Summary
 cat("=========================================\n")
 cat("Test Suite Summary\n")
@@ -303,9 +440,9 @@ cat("5. Benchmark with nCores > 1 on multi-core systems\n\n")
 cat("Implementation Status:\n")
 cat("✓ Phase 1: Adaptive split heuristic - COMPLETE\n")
 cat("✓ Phase 2: Parallel split evaluation - COMPLETE\n")
-cat("✗ Phase 3: Batch Gibbs sampling - NOT IMPLEMENTED\n")
-cat("✗ Phase 4: Convergence diagnostics - NOT IMPLEMENTED\n")
-cat("✗ Phase 5: Smart chain management - NOT IMPLEMENTED\n\n")
+cat("✓ Phase 3: Batch Gibbs sampling - COMPLETE\n")
+cat("✓ Phase 4: Convergence diagnostics - COMPLETE\n")
+cat("✓ Phase 5: Smart chain management - COMPLETE\n\n")
 
 cat("Expected performance gains:\n")
 cat("  With optimizations enabled: 2.5-4x speedup\n")
