@@ -603,7 +603,7 @@ setMethod(
     )
 
     estRmat.temp <- calculateNativeMatrix(
-      counts = countsBat,
+      counts = counts[, batch == bat, drop = FALSE],
       theta = res$theta,
       eta = res$eta,
       phi = res$phi,
