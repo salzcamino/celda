@@ -1,3 +1,52 @@
+# Helper function to identify split candidates based on heterogeneity
+#' @keywords internal
+.identifySplitCandidates <- function(counts, z, K,
+                                      heterogeneityThreshold = 0.3,
+                                      minCell = 3) {
+  zTa <- tabulate(z, K)
+  zCandidate <- which(zTa >= minCell)
+
+  if (length(zCandidate) == 0) {
+    return(integer(0))
+  }
+
+  # Calculate within-cluster heterogeneity
+  heterogeneity <- vapply(zCandidate, function(k) {
+    clusterCells <- which(z == k)
+    if (length(clusterCells) < minCell) return(0)
+
+    # Use coefficient of variation of cell total counts
+    cellTotals <- Matrix::colSums(counts[, clusterCells, drop = FALSE])
+    if (length(cellTotals) < 2) return(0)
+    cv <- sd(cellTotals) / mean(cellTotals)
+
+    # Also consider gene expression variance
+    if (nrow(counts) > 100) {
+      # Sample genes for speed
+      geneSample <- sample(nrow(counts), min(100, nrow(counts)))
+      geneVar <- mean(apply(as.matrix(counts[geneSample, clusterCells,
+        drop = FALSE]), 1, var))
+    } else {
+      geneVar <- mean(apply(as.matrix(counts[, clusterCells,
+        drop = FALSE]), 1, var))
+    }
+
+    # Combined heterogeneity score
+    return(cv + log1p(geneVar))
+  }, numeric(1))
+
+  # Filter candidates by heterogeneity threshold
+  if (length(heterogeneity) > 0 && any(!is.na(heterogeneity))) {
+    threshold <- quantile(heterogeneity[!is.na(heterogeneity)],
+      probs = 1 - heterogeneityThreshold, na.rm = TRUE)
+    highHeterogeneity <- !is.na(heterogeneity) & heterogeneity > threshold
+    return(zCandidate[highHeterogeneity])
+  } else {
+    return(zCandidate)
+  }
+}
+
+
 # .cCCalcLL = function(mCPByS, nGByCP, s, z, K, nS, nG, alpha, beta)
 .cCSplitZ <- function(counts,
                       mCPByS,
@@ -12,11 +61,14 @@
                       beta,
                       zProb,
                       maxClustersToTry = 10,
-                      minCell = 3) {
+                      minCell = 3,
+                      nCores = 1,
+                      heterogeneityThreshold = 0.3) {
 
-  ## Identify clusters to split
+  ## Identify clusters to split using heterogeneity filtering
+  zToSplit <- .identifySplitCandidates(counts, z, K,
+    heterogeneityThreshold, minCell)
   zTa <- tabulate(z, K)
-  zToSplit <- which(zTa >= minCell)
   zNonEmpty <- which(zTa > 0)
 
   if (length(zToSplit) == 0) {
@@ -27,27 +79,56 @@
     )
     return(list(
       z = z,
-      mCPByS,
-      nGByCP,
+      mCPByS = mCPByS,
+      nGByCP = nGByCP,
       nCP = nCP,
       message = m
     ))
   }
 
-  ## Loop through each split-able Z and perform split
-  clustSplit <- vector("list", K)
-  for (i in zToSplit) {
-    clustLabel <- .celda_C(
-      counts[, z == i],
-      K = 2,
-      zInitialize = "random",
-      maxIter = 5,
-      splitOnIter = -1,
-      splitOnLast = FALSE,
-      verbose = FALSE,
-      reorder = FALSE
-    )
-    clustSplit[[i]] <- as.integer(celdaClusters(clustLabel)$z)
+  ## Loop through each split-able Z and perform split (with parallel option)
+  parallelSplitThreshold <- 5
+  if (nCores > 1 && length(zToSplit) >= parallelSplitThreshold) {
+    # Use parallel processing
+    clustSplit <- parallel::mclapply(zToSplit, function(i) {
+      clustLabel <- .celda_C(
+        counts[, z == i],
+        K = 2,
+        zInitialize = "random",
+        maxIter = 5,
+        splitOnIter = -1,
+        splitOnLast = FALSE,
+        verbose = FALSE,
+        reorder = FALSE,
+        seed = NULL  # Different random seed per worker
+      )
+      return(as.integer(celdaClusters(clustLabel)$z))
+    }, mc.cores = nCores)
+
+    # Convert list to named list indexed by cluster
+    names(clustSplit) <- as.character(zToSplit)
+    # Expand to full K length
+    clustSplitFull <- vector("list", K)
+    for (idx in seq_along(zToSplit)) {
+      clustSplitFull[[zToSplit[idx]]] <- clustSplit[[idx]]
+    }
+    clustSplit <- clustSplitFull
+  } else {
+    # Sequential processing
+    clustSplit <- vector("list", K)
+    for (i in zToSplit) {
+      clustLabel <- .celda_C(
+        counts[, z == i],
+        K = 2,
+        zInitialize = "random",
+        maxIter = 5,
+        splitOnIter = -1,
+        splitOnLast = FALSE,
+        verbose = FALSE,
+        reorder = FALSE
+      )
+      clustSplit[[i]] <- as.integer(celdaClusters(clustLabel)$z)
+    }
   }
 
   ## Find second best assignment give current assignments for each cell
@@ -171,11 +252,14 @@
                        gamma,
                        zProb,
                        maxClustersToTry = 10,
-                       minCell = 3) {
+                       minCell = 3,
+                       nCores = 1,
+                       heterogeneityThreshold = 0.3) {
 
-  ## Identify clusters to split
+  ## Identify clusters to split using heterogeneity filtering
+  zToSplit <- .identifySplitCandidates(counts, z, K,
+    heterogeneityThreshold, minCell)
   zTa <- tabulate(z, K)
-  zToSplit <- which(zTa >= minCell)
   zNonEmpty <- which(zTa > 0)
 
   if (length(zToSplit) == 0) {
@@ -193,19 +277,47 @@
     ))
   }
 
-  ## Loop through each split-able Z and perform split
-  clustSplit <- vector("list", K)
-  for (i in zToSplit) {
-    clustLabel <- .celda_C(counts[, z == i],
-      K = 2,
-      zInitialize = "random",
-      maxIter = 5,
-      splitOnIter = -1,
-      splitOnLast = FALSE,
-      verbose = FALSE,
-      reorder = FALSE
-    )
-    clustSplit[[i]] <- as.integer(celdaClusters(clustLabel)$z)
+  ## Loop through each split-able Z and perform split (with parallel option)
+  parallelSplitThreshold <- 5
+  if (nCores > 1 && length(zToSplit) >= parallelSplitThreshold) {
+    # Use parallel processing
+    clustSplit <- parallel::mclapply(zToSplit, function(i) {
+      clustLabel <- .celda_C(counts[, z == i],
+        K = 2,
+        zInitialize = "random",
+        maxIter = 5,
+        splitOnIter = -1,
+        splitOnLast = FALSE,
+        verbose = FALSE,
+        reorder = FALSE,
+        seed = NULL
+      )
+      return(as.integer(celdaClusters(clustLabel)$z))
+    }, mc.cores = nCores)
+
+    # Convert list to named list indexed by cluster
+    names(clustSplit) <- as.character(zToSplit)
+    # Expand to full K length
+    clustSplitFull <- vector("list", K)
+    for (idx in seq_along(zToSplit)) {
+      clustSplitFull[[zToSplit[idx]]] <- clustSplit[[idx]]
+    }
+    clustSplit <- clustSplitFull
+  } else {
+    # Sequential processing
+    clustSplit <- vector("list", K)
+    for (i in zToSplit) {
+      clustLabel <- .celda_C(counts[, z == i],
+        K = 2,
+        zInitialize = "random",
+        maxIter = 5,
+        splitOnIter = -1,
+        splitOnLast = FALSE,
+        verbose = FALSE,
+        reorder = FALSE
+      )
+      clustSplit[[i]] <- as.integer(celdaClusters(clustLabel)$z)
+    }
   }
 
   ## Find second best assignment give current assignments for each cell
@@ -370,7 +482,8 @@
                        yProb,
                        maxClustersToTry = 10,
                        KSubclusters = 10,
-                       minCell = 3) {
+                       minCell = 3,
+                       nCores = 1) {
 
   #########################
   ## First, the cell dimension of the original matrix will be reduced by
@@ -431,19 +544,47 @@
     ))
   }
 
-  ## Loop through each split-able Z and perform split
-  clustSplit <- vector("list", L)
-  for (i in yToSplit) {
-    clustLabel <- .celda_G(tempNGByCP[y == i, ],
-      L = 2,
-      yInitialize = "random",
-      maxIter = 5,
-      splitOnIter = -1,
-      splitOnLast = FALSE,
-      verbose = FALSE,
-      reorder = FALSE
-    )
-    clustSplit[[i]] <- as.integer(celdaClusters(clustLabel)$y)
+  ## Loop through each split-able Y and perform split (with parallel option)
+  parallelSplitThreshold <- 5
+  if (nCores > 1 && length(yToSplit) >= parallelSplitThreshold) {
+    # Use parallel processing
+    clustSplit <- parallel::mclapply(yToSplit, function(i) {
+      clustLabel <- .celda_G(tempNGByCP[y == i, ],
+        L = 2,
+        yInitialize = "random",
+        maxIter = 5,
+        splitOnIter = -1,
+        splitOnLast = FALSE,
+        verbose = FALSE,
+        reorder = FALSE,
+        seed = NULL
+      )
+      return(as.integer(celdaClusters(clustLabel)$y))
+    }, mc.cores = nCores)
+
+    # Convert list to named list indexed by cluster
+    names(clustSplit) <- as.character(yToSplit)
+    # Expand to full L length
+    clustSplitFull <- vector("list", L)
+    for (idx in seq_along(yToSplit)) {
+      clustSplitFull[[yToSplit[idx]]] <- clustSplit[[idx]]
+    }
+    clustSplit <- clustSplitFull
+  } else {
+    # Sequential processing
+    clustSplit <- vector("list", L)
+    for (i in yToSplit) {
+      clustLabel <- .celda_G(tempNGByCP[y == i, ],
+        L = 2,
+        yInitialize = "random",
+        maxIter = 5,
+        splitOnIter = -1,
+        splitOnLast = FALSE,
+        verbose = FALSE,
+        reorder = FALSE
+      )
+      clustSplit[[i]] <- as.integer(celdaClusters(clustLabel)$y)
+    }
   }
 
   ## Find second best assignment give current assignments for each cell
@@ -603,7 +744,8 @@
                       gamma,
                       yProb,
                       minFeature = 3,
-                      maxClustersToTry = 10) {
+                      maxClustersToTry = 10,
+                      nCores = 1) {
 
   ## Identify clusters to split
   yTa <- table(factor(y, levels = seq(L)))
@@ -625,19 +767,47 @@
     ))
   }
 
-  ## Loop through each split-able y and find best split
-  clustSplit <- vector("list", L)
-  for (i in yToSplit) {
-    clustLabel <- .celda_G(counts[y == i, ],
-      L = 2,
-      yInitialize = "random",
-      maxIter = 5,
-      splitOnIter = -1,
-      splitOnLast = FALSE,
-      verbose = FALSE,
-      reorder = FALSE
-    )
-    clustSplit[[i]] <- as.integer(celdaClusters(clustLabel)$y)
+  ## Loop through each split-able y and find best split (with parallel option)
+  parallelSplitThreshold <- 5
+  if (nCores > 1 && length(yToSplit) >= parallelSplitThreshold) {
+    # Use parallel processing
+    clustSplit <- parallel::mclapply(yToSplit, function(i) {
+      clustLabel <- .celda_G(counts[y == i, ],
+        L = 2,
+        yInitialize = "random",
+        maxIter = 5,
+        splitOnIter = -1,
+        splitOnLast = FALSE,
+        verbose = FALSE,
+        reorder = FALSE,
+        seed = NULL
+      )
+      return(as.integer(celdaClusters(clustLabel)$y))
+    }, mc.cores = nCores)
+
+    # Convert list to named list indexed by cluster
+    names(clustSplit) <- as.character(yToSplit)
+    # Expand to full L length
+    clustSplitFull <- vector("list", L)
+    for (idx in seq_along(yToSplit)) {
+      clustSplitFull[[yToSplit[idx]]] <- clustSplit[[idx]]
+    }
+    clustSplit <- clustSplitFull
+  } else {
+    # Sequential processing
+    clustSplit <- vector("list", L)
+    for (i in yToSplit) {
+      clustLabel <- .celda_G(counts[y == i, ],
+        L = 2,
+        yInitialize = "random",
+        maxIter = 5,
+        splitOnIter = -1,
+        splitOnLast = FALSE,
+        verbose = FALSE,
+        reorder = FALSE
+      )
+      clustSplit[[i]] <- as.integer(celdaClusters(clustLabel)$y)
+    }
   }
 
   ## Find second best assignment give current assignments for each cell
