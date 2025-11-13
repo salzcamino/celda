@@ -70,6 +70,13 @@
 #' @param seed Integer. Passed to \link[withr]{with_seed}. For reproducibility,
 #'  a default value of 12345 is used. If NULL, no calls to
 #'  \link[withr]{with_seed} are made.
+#' @param nCores Integer. Number of CPU cores to use for parallel processing
+#'  of batches. When multiple batches are present, they can be processed
+#'  independently on separate cores. Values > 1 will use parallel::mclapply
+#'  (not available on Windows). Default \code{1} (no parallelization).
+#' @param nThreads Integer. Number of threads to use for UMAP dimensionality
+#'  reduction when estimating cell clusters (only used when z is not provided).
+#'  Default \code{1}.
 #' @param logfile Character. Messages will be redirected to a file named
 #'  `logfile`. If NULL, messages will be printed to stdout.  Default NULL.
 #' @param verbose Logical. Whether to print log messages. Default TRUE.
@@ -165,6 +172,8 @@ setMethod("decontX", "SingleCellExperiment", function(x,
                                                       varGenes = 5000,
                                                       dbscanEps = 1,
                                                       seed = 12345,
+                                                      nCores = 1,
+                                                      nThreads = 1,
                                                       logfile = NULL,
                                                       verbose = TRUE) {
   countsBackground <- NULL
@@ -202,6 +211,8 @@ setMethod("decontX", "SingleCellExperiment", function(x,
     varGenes = varGenes,
     dbscanEps = dbscanEps,
     seed = seed,
+    nCores = nCores,
+    nThreads = nThreads,
     logfile = logfile,
     verbose = verbose
   )
@@ -255,6 +266,8 @@ setMethod("decontX", "ANY", function(x,
                                      varGenes = 5000,
                                      dbscanEps = 1,
                                      seed = 12345,
+                                     nCores = 1,
+                                     nThreads = 1,
                                      logfile = NULL,
                                      verbose = TRUE) {
 
@@ -289,6 +302,8 @@ setMethod("decontX", "ANY", function(x,
     varGenes = varGenes,
     dbscanEps = dbscanEps,
     seed = seed,
+    nCores = nCores,
+    nThreads = nThreads,
     logfile = logfile,
     verbose = verbose
   )
@@ -372,6 +387,8 @@ setMethod(
                      varGenes = NULL,
                      dbscanEps = NULL,
                      seed = 12345,
+                     nCores = 1,
+                     nThreads = 1,
                      logfile = NULL,
                      verbose = TRUE) {
   startTime <- Sys.time()
@@ -452,14 +469,36 @@ setMethod(
   runParams$batchBackground <- batchBackground
   batchIndex <- unique(batch)
 
+  ## Pre-convert counts to sparse matrix if needed to avoid repeated conversions
+  if (!inherits(counts, "dgCMatrix")) {
+    .logMessages(
+      date(),
+      ".. Converting counts to sparse matrix",
+      logfile = logfile,
+      append = TRUE,
+      verbose = verbose
+    )
+    counts <- methods::as(counts, "CsparseMatrix")
+  }
+  if (!is.null(countsBackground) && !inherits(countsBackground, "dgCMatrix")) {
+    .logMessages(
+      date(),
+      ".. Converting background counts to sparse matrix",
+      logfile = logfile,
+      append = TRUE,
+      verbose = verbose
+    )
+    countsBackground <- methods::as(countsBackground, "CsparseMatrix")
+  }
+
   ## Set result lists upfront for all cells from different batches
   logLikelihood <- c()
   estConp <- rep(NA, nC)
   returnZ <- rep(NA, nC)
   resBatch <- list()
 
-  ## Cycle through each sample/batch and run DecontX
-  for (bat in batchIndex) {
+  ## Function to process a single batch
+  processBatch <- function(bat) {
     if (length(batchIndex) == 1) {
       .logMessages(
         date(),
@@ -481,29 +520,16 @@ setMethod(
     }
 
     zBat <- NULL
-    countsBat <- counts[, batch == bat]
-    bgBat <- countsBackground[, batchBackground == bat]
-
-    ## Convert to sparse matrix
-    if (!inherits(countsBat, "dgCMatrix")) {
-      .logMessages(
-        date(),
-        ".... Converting to sparse matrix",
-        logfile = logfile,
-        append = TRUE,
-        verbose = verbose
-      )
-      countsBat <- methods::as(countsBat, "CsparseMatrix")
-    }
-    if (!is.null(bgBat)) {
-      if (!inherits(bgBat, "dgCMatrix")) {
-        bgBat <- methods::as(bgBat, "CsparseMatrix")
-      }
+    countsBat <- counts[, batch == bat, drop = FALSE]
+    bgBat <- NULL
+    if (!is.null(countsBackground)) {
+      bgBat <- countsBackground[, batchBackground == bat, drop = FALSE]
     }
 
     if (!is.null(z)) {
       zBat <- z[batch == bat]
     }
+
     if (is.null(seed)) {
       res <- .decontXoneBatch(
         counts = countsBat,
@@ -519,6 +545,7 @@ setMethod(
         verbose = verbose,
         varGenes = varGenes,
         dbscanEps = dbscanEps,
+        nThreads = nThreads,
         seed = seed
       )
     } else {
@@ -538,10 +565,32 @@ setMethod(
           verbose = verbose,
           varGenes = varGenes,
           dbscanEps = dbscanEps,
+          nThreads = nThreads,
           seed = seed
         )
       )
     }
+    return(list(batch = bat, result = res))
+  }
+
+  ## Run batches in parallel or serial
+  if (nCores > 1 && length(batchIndex) > 1) {
+    .logMessages(
+      date(),
+      ".. Processing", length(batchIndex), "batches in parallel using", nCores, "cores",
+      logfile = logfile,
+      append = TRUE,
+      verbose = verbose
+    )
+    batchResults <- parallel::mclapply(batchIndex, processBatch, mc.cores = nCores)
+  } else {
+    batchResults <- lapply(batchIndex, processBatch)
+  }
+
+  ## Aggregate results from all batches
+  for (batchRes in batchResults) {
+    bat <- batchRes$batch
+    res <- batchRes$result
 
     ## Try to convert class of new matrix to class of original matrix
 
@@ -679,6 +728,7 @@ setMethod(
                              verbose = TRUE,
                              varGenes = NULL,
                              dbscanEps = NULL,
+                             nThreads = 1,
                              seed = 12345) {
   .checkCountsDecon(counts)
   .checkDelta(delta)
@@ -712,6 +762,7 @@ setMethod(
     varGenes = varGenes,
     dbscanEps = dbscanEps,
     estimateCellTypes = estimateCellTypes,
+    nThreads = nThreads,
     seed = seed
   )
   if (is.null(z)) {
@@ -1058,6 +1109,7 @@ addLogLikelihood <- function(llA, llB) {
                                 varGenes = 2000,
                                 dbscanEps = 1,
                                 estimateCellTypes = TRUE,
+                                nThreads = 1,
                                 seed = 12345) {
   if (!is(object, "SingleCellExperiment")) {
     sce <- SingleCellExperiment::SingleCellExperiment(
@@ -1070,12 +1122,12 @@ addLogLikelihood <- function(llA, llB) {
     with_seed(
       seed,
       resUmap <- scater::calculateUMAP(sce, ntop = varGenes,
-                                       n_threads = 1,
+                                       n_threads = nThreads,
                                        exprs_values = "logcounts")
     )
   } else {
     resUmap <- scater::calculateUMAP(sce, ntop = varGenes,
-                                     n_threads = 1,
+                                     n_threads = nThreads,
                                      exprs_values = "logcounts")
   }
 
@@ -1115,7 +1167,8 @@ addLogLikelihood <- function(llA, llB) {
            dbscanEps = 1.0,
            verbose = TRUE,
            seed = 12345,
-           logfile = NULL) {
+           logfile = NULL,
+           nCores = 1) {
     if (!is(object, "SingleCellExperiment")) {
       sce <- SingleCellExperiment::SingleCellExperiment(
         assays =
@@ -1154,12 +1207,14 @@ addLogLikelihood <- function(llA, llB) {
     L <- min(L, nrow(countsFiltered))
     if (is.null(seed)) {
       initialModuleSplit <- recursiveSplitModule(countsFiltered,
-        initialL = L, maxL = L, perplexity = FALSE, verbose = FALSE
+        initialL = L, maxL = L, perplexity = FALSE, verbose = FALSE,
+        nCores = nCores
       )
     } else {
       with_seed(seed,
                 initialModuleSplit <- recursiveSplitModule(countsFiltered,
-        initialL = L, maxL = L, perplexity = FALSE, verbose = FALSE
+        initialL = L, maxL = L, perplexity = FALSE, verbose = FALSE,
+        nCores = nCores
       ))
     }
     initialModel <- subsetCeldaList(initialModuleSplit, list(L = L))
