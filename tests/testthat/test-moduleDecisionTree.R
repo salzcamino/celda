@@ -4,10 +4,10 @@ context("Testing module decision tree functions")
 # Note: These tests require running recursiveSplitModule which can be slow
 # Tests are kept minimal to ensure the basic functionality works
 
-test_that(desc = "buildModuleDecisionTree requires celdaList input", {
+test_that(desc = "buildModuleDecisionTree requires valid input", {
     expect_error(
         buildModuleDecisionTree(matrix(0)),
-        "celdaList must be a 'celdaList' object from recursiveSplitModule"
+        "x must be a 'celdaList' or 'SingleCellExperiment' object"
     )
 })
 
@@ -21,6 +21,19 @@ test_that(desc = "buildModuleDecisionTree requires L parameter", {
     expect_error(
         buildModuleDecisionTree(mockList),
         "celdaList must contain models with L parameter"
+    )
+})
+
+test_that(desc = "buildModuleDecisionTree handles SCE without grid search", {
+    # Create a mock SCE without celda_grid_search in metadata
+    mockSCE <- SingleCellExperiment::SingleCellExperiment(
+        assays = list(counts = matrix(1, nrow = 10, ncol = 10))
+    )
+    SingleCellExperiment::altExp(mockSCE, "featureSubset") <- mockSCE
+
+    expect_error(
+        buildModuleDecisionTree(mockSCE),
+        "No celda_grid_search found in metadata"
     )
 })
 
