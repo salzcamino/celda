@@ -3,8 +3,12 @@
 #'  how feature modules are split during recursive module splitting. Each node
 #'  in the tree represents a module at a specific L value, with edges showing
 #'  parent-child relationships when modules are split.
-#' @param celdaList A \linkS4class{celdaList} object returned by
-#'  \link{recursiveSplitModule}.
+#' @param x Either a \linkS4class{celdaList} object or a
+#'  \linkS4class{SingleCellExperiment} object returned by
+#'  \link{recursiveSplitModule}. If a SingleCellExperiment is provided, the
+#'  celdaList will be extracted from the metadata.
+#' @param altExpName The name for the \link{altExp} slot
+#'  to use if \code{x} is a SingleCellExperiment. Default "featureSubset".
 #' @param minL Integer. Minimum number of modules to include in the tree.
 #'  If NULL, uses the minimum L from the celdaList. Default NULL.
 #' @param maxL Integer. Maximum number of modules to include in the tree.
@@ -38,12 +42,27 @@
 #' ## View tree structure
 #' print(modTree)
 #' @export
-buildModuleDecisionTree <- function(celdaList,
+buildModuleDecisionTree <- function(x,
+    altExpName = "featureSubset",
     minL = NULL,
     maxL = NULL) {
 
-    if (!methods::is(celdaList, "celdaList")) {
-        stop("celdaList must be a 'celdaList' object from recursiveSplitModule")
+    # Handle SingleCellExperiment input
+    if (methods::is(x, "SingleCellExperiment")) {
+        if (!altExpName %in% SingleCellExperiment::altExpNames(x)) {
+            stop(altExpName, " not in 'altExpNames(x)'")
+        }
+        altExp <- SingleCellExperiment::altExp(x, altExpName)
+        if (!"celda_grid_search" %in% names(S4Vectors::metadata(altExp))) {
+            stop("No celda_grid_search found in metadata. ",
+                "Make sure x is the result of recursiveSplitModule()")
+        }
+        celdaList <- S4Vectors::metadata(altExp)$celda_grid_search
+    } else if (methods::is(x, "celdaList")) {
+        celdaList <- x
+    } else {
+        stop("x must be a 'celdaList' or 'SingleCellExperiment' object ",
+            "from recursiveSplitModule")
     }
 
     runParams <- runParams(celdaList)

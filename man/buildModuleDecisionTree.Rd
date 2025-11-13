@@ -4,11 +4,16 @@
 \alias{buildModuleDecisionTree}
 \title{Build decision tree from recursive module splitting}
 \usage{
-buildModuleDecisionTree(celdaList, minL = NULL, maxL = NULL)
+buildModuleDecisionTree(x, altExpName = "featureSubset", minL = NULL, maxL = NULL)
 }
 \arguments{
-\item{celdaList}{A \linkS4class{celdaList} object returned by
-\link{recursiveSplitModule}.}
+\item{x}{Either a \linkS4class{celdaList} object or a
+\linkS4class{SingleCellExperiment} object returned by
+\link{recursiveSplitModule}. If a SingleCellExperiment is provided, the
+celdaList will be extracted from the metadata.}
+
+\item{altExpName}{The name for the \link{altExp} slot
+to use if \code{x} is a SingleCellExperiment. Default "featureSubset".}
 
 \item{minL}{Integer. Minimum number of modules to include in the tree.
 If NULL, uses the minimum L from the celdaList. Default NULL.}
