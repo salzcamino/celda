@@ -41,6 +41,22 @@
 #'  a cell population should be reassigned and another cell population should be
 #'  split into two clusters. If a split occurs, then `stopIter` will be reset.
 #'  Default TRUE.
+#' @param nCores Integer. Number of cores to use for parallel split evaluation.
+#'  Set to 1 for sequential processing. Values > 1 enable parallel::mclapply
+#'  for evaluating cluster splits. Default 1.
+#' @param splitAdaptive Logical. If TRUE, adaptively adjust split evaluation
+#'  frequency based on clustering stability. This can significantly reduce
+#'  computation time while maintaining clustering quality. Default TRUE.
+#' @param splitDecayRate Numeric. Rate at which split frequency decays when
+#'  splitAdaptive is TRUE. Higher values reduce split checks more aggressively.
+#'  Only used when splitAdaptive = TRUE. Default 0.8.
+#' @param splitMinIter Integer. Minimum number of iterations between split
+#'  checks when splitAdaptive is TRUE. Prevents too-frequent splitting in
+#'  early iterations. Only used when splitAdaptive = TRUE. Default 20.
+#' @param heterogeneityThreshold Numeric. Proportion of clusters to evaluate
+#'  for splitting based on within-cluster heterogeneity. Setting to 0.3 means
+#'  only the top 30% most heterogeneous clusters will be split-tested,
+#'  reducing computation. Range [0, 1]. Default 0.3.
 #' @param seed Integer. Passed to \link[withr]{with_seed}. For reproducibility,
 #'  a default value of 12345 is used. If NULL, no calls to
 #'  \link[withr]{with_seed} are made.
@@ -88,6 +104,11 @@ setGeneric("celda_C",
         maxIter = 200,
         splitOnIter = 10,
         splitOnLast = TRUE,
+        nCores = 1,
+        splitAdaptive = TRUE,
+        splitDecayRate = 0.8,
+        splitMinIter = 20,
+        heterogeneityThreshold = 0.3,
         seed = 12345,
         nchains = 3,
         zInitialize = c("split", "random", "predefined"),
@@ -114,6 +135,11 @@ setMethod("celda_C",
         maxIter = 200,
         splitOnIter = 10,
         splitOnLast = TRUE,
+        nCores = 1,
+        splitAdaptive = TRUE,
+        splitDecayRate = 0.8,
+        splitMinIter = 20,
+        heterogeneityThreshold = 0.3,
         seed = 12345,
         nchains = 3,
         zInitialize = c("split", "random", "predefined"),
@@ -150,6 +176,11 @@ setMethod("celda_C",
             maxIter = maxIter,
             splitOnIter = splitOnIter,
             splitOnLast = splitOnLast,
+            nCores = nCores,
+            splitAdaptive = splitAdaptive,
+            splitDecayRate = splitDecayRate,
+            splitMinIter = splitMinIter,
+            heterogeneityThreshold = heterogeneityThreshold,
             seed = seed,
             nchains = nchains,
             zInitialize = match.arg(zInitialize),
@@ -179,6 +210,11 @@ setMethod("celda_C",
         maxIter = 200,
         splitOnIter = 10,
         splitOnLast = TRUE,
+        nCores = 1,
+        splitAdaptive = TRUE,
+        splitDecayRate = 0.8,
+        splitMinIter = 20,
+        heterogeneityThreshold = 0.3,
         seed = 12345,
         nchains = 3,
         zInitialize = c("split", "random", "predefined"),
@@ -209,6 +245,11 @@ setMethod("celda_C",
             maxIter = maxIter,
             splitOnIter = splitOnIter,
             splitOnLast = splitOnLast,
+            nCores = nCores,
+            splitAdaptive = splitAdaptive,
+            splitDecayRate = splitDecayRate,
+            splitMinIter = splitMinIter,
+            heterogeneityThreshold = heterogeneityThreshold,
             seed = seed,
             nchains = nchains,
             zInitialize = match.arg(zInitialize),
@@ -235,6 +276,11 @@ setMethod("celda_C",
     maxIter,
     splitOnIter,
     splitOnLast,
+    nCores,
+    splitAdaptive,
+    splitDecayRate,
+    splitMinIter,
+    heterogeneityThreshold,
     seed,
     nchains,
     zInitialize,
@@ -256,6 +302,11 @@ setMethod("celda_C",
             maxIter = maxIter,
             splitOnIter = splitOnIter,
             splitOnLast = splitOnLast,
+            nCores = nCores,
+            splitAdaptive = splitAdaptive,
+            splitDecayRate = splitDecayRate,
+            splitMinIter = splitMinIter,
+            heterogeneityThreshold = heterogeneityThreshold,
             nchains = nchains,
             zInitialize = zInitialize,
             countChecksum = countChecksum,
@@ -275,6 +326,11 @@ setMethod("celda_C",
                 maxIter = maxIter,
                 splitOnIter = splitOnIter,
                 splitOnLast = splitOnLast,
+                nCores = nCores,
+                splitAdaptive = splitAdaptive,
+                splitDecayRate = splitDecayRate,
+                splitMinIter = splitMinIter,
+                heterogeneityThreshold = heterogeneityThreshold,
                 nchains = nchains,
                 zInitialize = zInitialize,
                 countChecksum = countChecksum,
@@ -313,6 +369,11 @@ setMethod("celda_C",
     maxIter = 200,
     splitOnIter = 10,
     splitOnLast = TRUE,
+    nCores = 1,
+    splitAdaptive = TRUE,
+    splitDecayRate = 0.8,
+    splitMinIter = 20,
+    heterogeneityThreshold = 0.3,
     nchains = 3,
     zInitialize = c("split", "random", "predefined"),
     countChecksum = NULL,
@@ -423,6 +484,9 @@ setMethod("celda_C",
     iter <- 1L
     numIterWithoutImprovement <- 0L
     doCellSplit <- TRUE
+    nextSplitIter <- splitOnIter
+    splitOccurred <- FALSE
+
     while (iter <= maxIter & numIterWithoutImprovement <= stopIter) {
       nextZ <- do.call(algorithmFun, list(
         counts = counts,
@@ -457,11 +521,31 @@ setMethod("celda_C",
         beta = beta
       )
 
+      ## Adaptive split frequency calculation
+      if (isTRUE(splitAdaptive) && splitOnIter > 0) {
+        if (splitOccurred) {
+          # Increase interval after a split (split less frequently)
+          nextSplitIter <- max(splitOnIter,
+            ceiling(nextSplitIter / splitDecayRate))
+          nextSplitIter <- min(nextSplitIter, splitMinIter)
+        } else {
+          # Gradually decrease interval (split more frequently)
+          nextSplitIter <- max(splitOnIter,
+            ceiling(nextSplitIter * splitDecayRate))
+        }
+      } else {
+        nextSplitIter <- splitOnIter
+      }
+
+      ## Check if split should occur
+      shouldSplitPeriodic <- (splitOnIter > 0 &&
+        iter %% ceiling(nextSplitIter) == 0 &&
+        isTRUE(doCellSplit))
+
       if (K > 2 & iter != maxIter &
         ((((numIterWithoutImprovement == stopIter &
           !all(tempLl >= ll))) & isTRUE(splitOnLast)) |
-          (splitOnIter > 0 & iter %% splitOnIter == 0 &
-            isTRUE(doCellSplit)))) {
+          shouldSplitPeriodic)) {
         .logMessages(date(),
           " .... Determining if any cell clusters should be split.",
           logfile = logfile,
@@ -484,7 +568,9 @@ setMethod("celda_C",
           beta,
           zProb = t(as.matrix(nextZ$probs)),
           maxClustersToTry = K,
-          minCell = 3
+          minCell = 3,
+          nCores = nCores,
+          heterogeneityThreshold = heterogeneityThreshold
         )
 
         .logMessages(res$message,
@@ -497,8 +583,10 @@ setMethod("celda_C",
         if (!isTRUE(all.equal(z, res$z))) {
           numIterWithoutImprovement <- 0L
           doCellSplit <- TRUE
+          splitOccurred <- TRUE
         } else {
           doCellSplit <- FALSE
+          splitOccurred <- FALSE
         }
 
         ## Re-calculate variables
