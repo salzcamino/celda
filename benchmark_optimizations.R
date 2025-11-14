@@ -32,6 +32,9 @@ sim <- simulateContamination(
 sce <- sim$observedCounts
 sce <- SingleCellExperiment(assays = list(counts = sce))
 
+# Select features (required before running celda_CG)
+sce <- selectFeatures(sce)
+
 cat("   - Dataset dimensions:", nrow(sce), "genes x", ncol(sce), "cells\n\n")
 
 # -----------------------------------------------------------------------------
