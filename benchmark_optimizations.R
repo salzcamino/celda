@@ -33,8 +33,8 @@ sce <- sim$observedCounts
 sce <- SingleCellExperiment(assays = list(counts = sce))
 
 # Select features (required before running celda_CG)
-# Use minCount=0, minCell=0 to keep all features for this small simulated dataset
-sce <- selectFeatures(sce, minCount = 0, minCell = 0)
+# Use minCount=1, minCell=1 to ensure all features have at least some counts
+sce <- selectFeatures(sce, minCount = 1, minCell = 1)
 
 cat("   - Dataset dimensions:", nrow(sce), "genes x", ncol(sce), "cells\n\n")
 
