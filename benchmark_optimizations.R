@@ -33,7 +33,8 @@ sce <- sim$observedCounts
 sce <- SingleCellExperiment(assays = list(counts = sce))
 
 # Select features (required before running celda_CG)
-sce <- selectFeatures(sce)
+# Use minCount=0, minCell=0 to keep all features for this small simulated dataset
+sce <- selectFeatures(sce, minCount = 0, minCell = 0)
 
 cat("   - Dataset dimensions:", nrow(sce), "genes x", ncol(sce), "cells\n\n")
 
@@ -43,20 +44,11 @@ cat("   - Dataset dimensions:", nrow(sce), "genes x", ncol(sce), "cells\n\n")
 cat("2. Benchmarking recursiveSplitModule...\n")
 cat("   Testing with L splitting (modules/gene clusters)\n\n")
 
-# Initialize a celda_CG model for module splitting
-initialModel <- celda_CG(
-  x = sce,
-  L = 5,
-  K = 10,
-  nchains = 1,
-  maxIter = 50,
-  verbose = FALSE
-)
-
 cat("   a) Serial execution (nCores = 1):\n")
 time_module_serial <- system.time({
   result_module_serial <- recursiveSplitModule(
-    x = initialModel,
+    x = sce,
+    initialL = 5,
     maxL = 10,
     perplexity = FALSE,
     verbose = FALSE,
@@ -68,7 +60,8 @@ cat("      Time:", round(time_module_serial["elapsed"], 2), "seconds\n\n")
 cat("   b) Parallel execution (nCores = 4):\n")
 time_module_parallel <- system.time({
   result_module_parallel <- recursiveSplitModule(
-    x = initialModel,
+    x = sce,
+    initialL = 5,
     maxL = 10,
     perplexity = FALSE,
     verbose = FALSE,
@@ -87,9 +80,9 @@ cat("   Testing with K splitting (cell populations)\n\n")
 cat("   a) Serial execution (nCores = 1):\n")
 time_cell_serial <- system.time({
   result_cell_serial <- recursiveSplitCell(
-    x = initialModel,
+    x = sce,
+    initialK = 5,
     maxK = 15,
-    yInit = TRUE,
     perplexity = FALSE,
     verbose = FALSE,
     nCores = 1
@@ -100,9 +93,9 @@ cat("      Time:", round(time_cell_serial["elapsed"], 2), "seconds\n\n")
 cat("   b) Parallel execution (nCores = 4):\n")
 time_cell_parallel <- system.time({
   result_cell_parallel <- recursiveSplitCell(
-    x = initialModel,
+    x = sce,
+    initialK = 5,
     maxK = 15,
-    yInit = TRUE,
     perplexity = FALSE,
     verbose = FALSE,
     nCores = 4
