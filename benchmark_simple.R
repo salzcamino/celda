@@ -21,6 +21,10 @@ sim <- simulateContamination(
 )
 
 sce <- SingleCellExperiment(assays = list(counts = sim$observedCounts))
+
+# Select features (required before running celdaGridSearch)
+sce <- selectFeatures(sce)
+
 cat("Dataset:", nrow(sce), "genes x", ncol(sce), "cells\n\n")
 
 # Test 1: Serial execution
