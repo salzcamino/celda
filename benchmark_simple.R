@@ -23,7 +23,8 @@ sim <- simulateContamination(
 sce <- SingleCellExperiment(assays = list(counts = sim$observedCounts))
 
 # Select features (required before running celdaGridSearch)
-sce <- selectFeatures(sce)
+# Use minCount=0, minCell=0 to keep all features for this small simulated dataset
+sce <- selectFeatures(sce, minCount = 0, minCell = 0)
 
 cat("Dataset:", nrow(sce), "genes x", ncol(sce), "cells\n\n")
 
