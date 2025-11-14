@@ -75,6 +75,9 @@ library(SingleCellExperiment)
 sim <- simulateContamination(C = 10, G = 200, N = 500)
 sce <- SingleCellExperiment(assays = list(counts = sim$observedCounts))
 
+# Select features for celda model
+sce <- selectFeatures(sce, minCount = 3)
+
 # Generate HTML report with parallelization
 reportCeldaCGRun(
   sce = sce,
