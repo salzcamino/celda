@@ -46,6 +46,9 @@
 #'  a cell population or feature module should be reassigned and another cell
 #'  population or feature module should be split into two clusters. If a split
 #'  occurs, then 'stopIter' will be reset. Default TRUE.
+#' @param nCores Integer. Number of cores to use for parallel split evaluation.
+#'  Set to 1 for sequential processing. Values > 1 enable parallel::mclapply
+#'  for evaluating cluster splits. Default 1.
 #' @param seed Integer. Passed to \link[withr]{with_seed}. For reproducibility,
 #'  a default value of 12345 is used. If NULL, no calls to
 #'  \link[withr]{with_seed} are made.
@@ -98,6 +101,7 @@ setGeneric("celda_CG",
         maxIter = 200,
         splitOnIter = 10,
         splitOnLast = TRUE,
+        nCores = 1,
         seed = 12345,
         nchains = 3,
         zInitialize = c("split", "random", "predefined"),
