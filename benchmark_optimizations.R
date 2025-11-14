@@ -32,7 +32,13 @@ sim <- simulateContamination(
 sce <- sim$observedCounts
 sce <- SingleCellExperiment(assays = list(counts = sce))
 
-cat("   - Dataset dimensions:", nrow(sce), "genes x", ncol(sce), "cells\n\n")
+cat("   - Dataset dimensions:", nrow(sce), "genes x", ncol(sce), "cells\n")
+
+# Select features for celda model
+cat("   - Selecting features...\n")
+sce <- selectFeatures(sce, minCount = 3)
+
+cat("\n")
 
 # -----------------------------------------------------------------------------
 # 2. Benchmark recursiveSplitModule
