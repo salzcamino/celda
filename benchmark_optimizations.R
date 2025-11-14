@@ -14,6 +14,17 @@ cat("=================================================================\n\n")
 # Set seed for reproducibility
 set.seed(12345)
 
+# Detect OS and set parallel cores accordingly
+# mclapply doesn't work on Windows, so we skip parallel tests on Windows
+isWindows <- .Platform$OS.type == "windows"
+if (isWindows) {
+  cat("NOTE: Windows detected. Parallel tests (nCores > 1) will be skipped.\n")
+  cat("      mclapply() is not supported on Windows.\n\n")
+  parallelCores <- 1
+} else {
+  parallelCores <- 4
+}
+
 # -----------------------------------------------------------------------------
 # 1. Generate Test Dataset
 # -----------------------------------------------------------------------------
@@ -57,19 +68,24 @@ time_module_serial <- system.time({
 })
 cat("      Time:", round(time_module_serial["elapsed"], 2), "seconds\n\n")
 
-cat("   b) Parallel execution (nCores = 4):\n")
-time_module_parallel <- system.time({
-  result_module_parallel <- recursiveSplitModule(
-    x = sce,
-    initialL = 5,
-    maxL = 10,
-    perplexity = FALSE,
-    verbose = FALSE,
-    nCores = 4
-  )
-})
-cat("      Time:", round(time_module_parallel["elapsed"], 2), "seconds\n")
-cat("      Speedup:", round(time_module_serial["elapsed"] / time_module_parallel["elapsed"], 2), "x\n\n")
+if (!isWindows) {
+  cat("   b) Parallel execution (nCores = 4):\n")
+  time_module_parallel <- system.time({
+    result_module_parallel <- recursiveSplitModule(
+      x = sce,
+      initialL = 5,
+      maxL = 10,
+      perplexity = FALSE,
+      verbose = FALSE,
+      nCores = parallelCores
+    )
+  })
+  cat("      Time:", round(time_module_parallel["elapsed"], 2), "seconds\n")
+  cat("      Speedup:", round(time_module_serial["elapsed"] / time_module_parallel["elapsed"], 2), "x\n\n")
+} else {
+  cat("   b) Parallel execution: SKIPPED (not supported on Windows)\n\n")
+  time_module_parallel <- time_module_serial
+}
 
 # -----------------------------------------------------------------------------
 # 3. Benchmark recursiveSplitCell
@@ -90,19 +106,24 @@ time_cell_serial <- system.time({
 })
 cat("      Time:", round(time_cell_serial["elapsed"], 2), "seconds\n\n")
 
-cat("   b) Parallel execution (nCores = 4):\n")
-time_cell_parallel <- system.time({
-  result_cell_parallel <- recursiveSplitCell(
-    x = sce,
-    initialK = 5,
-    maxK = 15,
-    perplexity = FALSE,
-    verbose = FALSE,
-    nCores = 4
-  )
-})
-cat("      Time:", round(time_cell_parallel["elapsed"], 2), "seconds\n")
-cat("      Speedup:", round(time_cell_serial["elapsed"] / time_cell_parallel["elapsed"], 2), "x\n\n")
+if (!isWindows) {
+  cat("   b) Parallel execution (nCores = 4):\n")
+  time_cell_parallel <- system.time({
+    result_cell_parallel <- recursiveSplitCell(
+      x = sce,
+      initialK = 5,
+      maxK = 15,
+      perplexity = FALSE,
+      verbose = FALSE,
+      nCores = parallelCores
+    )
+  })
+  cat("      Time:", round(time_cell_parallel["elapsed"], 2), "seconds\n")
+  cat("      Speedup:", round(time_cell_serial["elapsed"] / time_cell_parallel["elapsed"], 2), "x\n\n")
+} else {
+  cat("   b) Parallel execution: SKIPPED (not supported on Windows)\n\n")
+  time_cell_parallel <- time_cell_serial
+}
 
 # -----------------------------------------------------------------------------
 # 4. Benchmark decontX
@@ -137,35 +158,45 @@ time_decontx_threaded <- system.time({
 cat("      Time:", round(time_decontx_threaded["elapsed"], 2), "seconds\n")
 cat("      Speedup:", round(time_decontx_serial["elapsed"] / time_decontx_threaded["elapsed"], 2), "x\n\n")
 
-cat("   c) Parallel batches (nCores = 4, nThreads = 1):\n")
-time_decontx_parallel <- system.time({
-  result_decontx_parallel <- decontX(
-    x = sce,
-    z = sim$z,
-    batch = sample(1:4, ncol(sce), replace = TRUE),  # Add batches for parallelization
-    maxIter = 3,
-    nCores = 4,
-    nThreads = 1,
-    verbose = FALSE
-  )
-})
-cat("      Time:", round(time_decontx_parallel["elapsed"], 2), "seconds\n")
-cat("      Speedup:", round(time_decontx_serial["elapsed"] / time_decontx_parallel["elapsed"], 2), "x\n\n")
+if (!isWindows) {
+  cat("   c) Parallel batches (nCores = 4, nThreads = 1):\n")
+  time_decontx_parallel <- system.time({
+    result_decontx_parallel <- decontX(
+      x = sce,
+      z = sim$z,
+      batch = sample(1:4, ncol(sce), replace = TRUE),  # Add batches for parallelization
+      maxIter = 3,
+      nCores = parallelCores,
+      nThreads = 1,
+      verbose = FALSE
+    )
+  })
+  cat("      Time:", round(time_decontx_parallel["elapsed"], 2), "seconds\n")
+  cat("      Speedup:", round(time_decontx_serial["elapsed"] / time_decontx_parallel["elapsed"], 2), "x\n\n")
+} else {
+  cat("   c) Parallel batches: SKIPPED (not supported on Windows)\n\n")
+  time_decontx_parallel <- time_decontx_serial
+}
 
-cat("   d) Full parallelization (nCores = 4, nThreads = 2):\n")
-time_decontx_full <- system.time({
-  result_decontx_full <- decontX(
-    x = sce,
-    z = sim$z,
-    batch = sample(1:4, ncol(sce), replace = TRUE),
-    maxIter = 3,
-    nCores = 4,
-    nThreads = 2,
-    verbose = FALSE
-  )
-})
-cat("      Time:", round(time_decontx_full["elapsed"], 2), "seconds\n")
-cat("      Speedup:", round(time_decontx_serial["elapsed"] / time_decontx_full["elapsed"], 2), "x\n\n")
+if (!isWindows) {
+  cat("   d) Full parallelization (nCores = 4, nThreads = 2):\n")
+  time_decontx_full <- system.time({
+    result_decontx_full <- decontX(
+      x = sce,
+      z = sim$z,
+      batch = sample(1:4, ncol(sce), replace = TRUE),
+      maxIter = 3,
+      nCores = parallelCores,
+      nThreads = 2,
+      verbose = FALSE
+    )
+  })
+  cat("      Time:", round(time_decontx_full["elapsed"], 2), "seconds\n")
+  cat("      Speedup:", round(time_decontx_serial["elapsed"] / time_decontx_full["elapsed"], 2), "x\n\n")
+} else {
+  cat("   d) Full parallelization: SKIPPED (not supported on Windows)\n\n")
+  time_decontx_full <- time_decontx_serial
+}
 
 # -----------------------------------------------------------------------------
 # 5. Summary Results
