@@ -74,6 +74,14 @@
 #'  is only used when `zInitialize = 'predfined'`. Default NULL.
 #' @param yInit Integer vector. Sets initial starting values of y.
 #'  'yInit' is only be used when `yInitialize = "predefined"`. Default NULL.
+#' @param markerGenes Named list. Marker genes for cell types to guide
+#'  initialization of cell clusters. Each element should be a character vector
+#'  of gene names. Names represent cell type labels. Only used when
+#'  zInitialize = 'split'. Example: list("T cells" = c("CD3D", "CD3E"),
+#'  "B cells" = c("CD19", "MS4A1")). Default NULL.
+#' @param priorClustering Integer vector. Prior cluster assignments for cells
+#'  to refine. If provided, will be used as starting point and refined to
+#'  match K clusters. Only used when zInitialize = 'split'. Default NULL.
 #' @param countChecksum Character. An MD5 checksum for the counts matrix.
 #'  Default NULL.
 #' @param logfile Character. Messages will be redirected to a file named
@@ -115,9 +123,12 @@ setGeneric("celda_CG",
         nchains = 3,
         zInitialize = c("split", "random", "predefined"),
         yInitialize = c("split", "random", "predefined"),
+        adaptiveSubclusters = FALSE,
         countChecksum = NULL,
         zInit = NULL,
         yInit = NULL,
+        markerGenes = NULL,
+        priorClustering = NULL,
         logfile = NULL,
         verbose = TRUE) {
     standardGeneric("celda_CG")})
@@ -148,6 +159,7 @@ setMethod("celda_CG",
         nchains = 3,
         zInitialize = c("split", "random", "predefined"),
         yInitialize = c("split", "random", "predefined"),
+        adaptiveSubclusters = FALSE,
         countChecksum = NULL,
         zInit = NULL,
         yInit = NULL,
@@ -234,6 +246,7 @@ setMethod("celda_CG",
         nchains = 3,
         zInitialize = c("split", "random", "predefined"),
         yInitialize = c("split", "random", "predefined"),
+        adaptiveSubclusters = FALSE,
         countChecksum = NULL,
         zInit = NULL,
         yInit = NULL,
@@ -413,6 +426,8 @@ setMethod("celda_CG",
                       countChecksum = NULL,
                       zInit = NULL,
                       yInit = NULL,
+                      markerGenes = NULL,
+                      priorClustering = NULL,
                       logfile = NULL,
                       verbose = TRUE,
                       reorder = TRUE) {
@@ -496,7 +511,9 @@ setMethod("celda_CG",
         K = K,
         alpha = alpha,
         beta = beta,
-        adaptiveSubclusters = adaptiveSubclusters
+        adaptiveSubclusters = adaptiveSubclusters,
+        markerGenes = markerGenes,
+        priorClustering = priorClustering
       )
     } else {
       z <- .initializeCluster(K,

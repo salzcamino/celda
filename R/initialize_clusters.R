@@ -57,15 +57,243 @@
 }
 
 
+# Adaptive subcluster selection for cell clustering initialization
+# Uses silhouette scores from quick hierarchical clustering to determine
+# optimal number of subclusters for split initialization
+.adaptiveKSubcluster <- function(counts, K, samplingSize = 1000) {
+  nCells <- ncol(counts)
+
+  # For very small K, just use the fixed heuristic
+  if (K < 4) {
+    return(ceiling(sqrt(K)))
+  }
+
+  # Handle small datasets - can't subsample
+  if (nCells <= samplingSize || nCells < 100) {
+    return(ceiling(sqrt(K)))
+  }
+
+  # Sample cells for quick assessment
+  sampleIdx <- sample(seq_len(nCells), min(samplingSize, nCells))
+  countsSample <- counts[, sampleIdx, drop = FALSE]
+
+  # Filter to most variable genes for faster distance calculation
+  nGenesUse <- min(500, nrow(countsSample))
+  if (nrow(countsSample) > nGenesUse) {
+    geneVars <- apply(countsSample, 1, var)
+    topGenes <- order(geneVars, decreasing = TRUE)[seq_len(nGenesUse)]
+    countsSample <- countsSample[topGenes, , drop = FALSE]
+  }
+
+  # Quick hierarchical clustering with sqrt(K) clusters
+  kTest <- ceiling(sqrt(K))
+
+  # Transpose for cell-cell distance
+  distMatrix <- tryCatch({
+    dist(t(as.matrix(countsSample)))
+  }, error = function(e) {
+    # If distance calculation fails, fall back to default
+    return(NULL)
+  })
+
+  if (is.null(distMatrix)) {
+    return(kTest)
+  }
+
+  # Use fastcluster if available, else stats::hclust
+  hcResult <- tryCatch({
+    if (requireNamespace("fastcluster", quietly = TRUE)) {
+      fastcluster::hclust(distMatrix, method = "average")
+    } else {
+      stats::hclust(distMatrix, method = "average")
+    }
+  }, error = function(e) {
+    return(NULL)
+  })
+
+  if (is.null(hcResult)) {
+    return(kTest)
+  }
+
+  # Cut tree to get sqrt(K) clusters
+  clusters <- cutree(hcResult, k = kTest)
+
+  # Calculate average silhouette score
+  avgSilhouette <- tryCatch({
+    if (requireNamespace("cluster", quietly = TRUE)) {
+      silResult <- cluster::silhouette(clusters, distMatrix)
+      mean(silResult[, "sil_width"])
+    } else {
+      # If cluster package not available, use default
+      NA
+    }
+  }, error = function(e) {
+    NA
+  })
+
+  # Adaptive logic based on silhouette score
+  # High silhouette (>0.5) = clear structure, use fewer subclusters
+  # Low silhouette (<0.2) = diffuse structure, use more subclusters
+  # Medium silhouette = use default sqrt(K)
+  if (!is.na(avgSilhouette)) {
+    if (avgSilhouette > 0.5) {
+      # Clear structure - fewer subclusters needed
+      result <- ceiling(sqrt(K) * 0.7)
+    } else if (avgSilhouette < 0.2) {
+      # Diffuse structure - more subclusters helpful
+      result <- ceiling(sqrt(K) * 1.3)
+    } else {
+      # Medium structure - use default
+      result <- kTest
+    }
+  } else {
+    result <- kTest
+  }
+
+  # Bound result to reasonable range
+  result <- max(2, min(K, result))
+
+  return(as.integer(result))
+}
+
+
+# Adaptive subcluster selection for gene module initialization
+# Similar to .adaptiveKSubcluster but operates on genes instead of cells
+.adaptiveLSubcluster <- function(counts, L, samplingSize = 100) {
+  nGenes <- nrow(counts)
+
+  # For very small L, just use the fixed heuristic
+  if (L < 4) {
+    return(ceiling(sqrt(L)))
+  }
+
+  # Handle small datasets
+  if (nGenes <= samplingSize || nGenes < 50) {
+    return(ceiling(sqrt(L)))
+  }
+
+  # Sample genes for quick assessment
+  sampleIdx <- sample(seq_len(nGenes), min(samplingSize, nGenes))
+  countsSample <- counts[sampleIdx, , drop = FALSE]
+
+  # Filter to cells with non-zero expression for sampled genes
+  cellSums <- colSums(countsSample)
+  if (sum(cellSums > 0) < 10) {
+    # Too few informative cells, fall back to default
+    return(ceiling(sqrt(L)))
+  }
+  countsSample <- countsSample[, cellSums > 0, drop = FALSE]
+
+  # Further subsample cells if too many
+  if (ncol(countsSample) > 500) {
+    cellIdx <- sample(seq_len(ncol(countsSample)), 500)
+    countsSample <- countsSample[, cellIdx, drop = FALSE]
+  }
+
+  # Quick hierarchical clustering with sqrt(L) clusters
+  lTest <- ceiling(sqrt(L))
+
+  # Gene-gene distance
+  distMatrix <- tryCatch({
+    dist(as.matrix(countsSample))
+  }, error = function(e) {
+    return(NULL)
+  })
+
+  if (is.null(distMatrix)) {
+    return(lTest)
+  }
+
+  # Use fastcluster if available
+  hcResult <- tryCatch({
+    if (requireNamespace("fastcluster", quietly = TRUE)) {
+      fastcluster::hclust(distMatrix, method = "average")
+    } else {
+      stats::hclust(distMatrix, method = "average")
+    }
+  }, error = function(e) {
+    return(NULL)
+  })
+
+  if (is.null(hcResult)) {
+    return(lTest)
+  }
+
+  # Cut tree to get sqrt(L) clusters
+  clusters <- cutree(hcResult, k = lTest)
+
+  # Calculate average silhouette score
+  avgSilhouette <- tryCatch({
+    if (requireNamespace("cluster", quietly = TRUE)) {
+      silResult <- cluster::silhouette(clusters, distMatrix)
+      mean(silResult[, "sil_width"])
+    } else {
+      NA
+    }
+  }, error = function(e) {
+    NA
+  })
+
+  # Adaptive logic
+  if (!is.na(avgSilhouette)) {
+    if (avgSilhouette > 0.5) {
+      result <- ceiling(sqrt(L) * 0.7)
+    } else if (avgSilhouette < 0.2) {
+      result <- ceiling(sqrt(L) * 1.3)
+    } else {
+      result <- lTest
+    }
+  } else {
+    result <- lTest
+  }
+
+  # Bound result
+  result <- max(2, min(L, result))
+
+  return(as.integer(result))
+}
+
+
 .initializeSplitZ <- function(counts,
                               K,
                               KSubcluster = NULL,
                               alpha = 1,
                               beta = 1,
-                              minCell = 3) {
+                              minCell = 3,
+                              adaptiveSubclusters = FALSE,
+                              markerGenes = NULL,
+                              priorClustering = NULL) {
+
+  # If marker genes provided, use marker-guided initialization
+  if (!is.null(markerGenes)) {
+    return(.initializeSplitZ_MarkerGuided(
+      counts = counts,
+      K = K,
+      markerGenes = markerGenes,
+      minCell = minCell
+    ))
+  }
+
+  # If prior clustering provided, refine it
+  if (!is.null(priorClustering)) {
+    return(.initializeSplitZ_PriorClustering(
+      counts = counts,
+      K = K,
+      priorClustering = priorClustering,
+      minCell = minCell
+    ))
+  }
+
+  # Otherwise, use existing split initialization method
   s <- rep(1, ncol(counts))
+
+  # Use adaptive subcluster selection if enabled and KSubcluster not specified
   if (is.null(KSubcluster)) {
-    KSubcluster <- ceiling(sqrt(K))
+    if (adaptiveSubclusters) {
+      KSubcluster <- .adaptiveKSubcluster(counts, K)
+    } else {
+      KSubcluster <- ceiling(sqrt(K))
+    }
   }
 
   # Initialize the model with KSubcluster clusters
@@ -223,9 +451,16 @@
                               beta = 1,
                               delta = 1,
                               gamma = 1,
-                              minFeature = 3) {
+                              minFeature = 3,
+                              adaptiveSubclusters = FALSE) {
+
+  # Use adaptive subcluster selection if enabled and LSubcluster not specified
   if (is.null(LSubcluster)) {
-    LSubcluster <- ceiling(sqrt(L))
+    if (adaptiveSubclusters) {
+      LSubcluster <- .adaptiveLSubcluster(counts, L)
+    } else {
+      LSubcluster <- ceiling(sqrt(L))
+    }
   }
 
   # Collapse cells to managable number of clusters

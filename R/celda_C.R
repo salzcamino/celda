@@ -76,6 +76,14 @@
 #'  values in `zInit` will be used to initialize `z`. Default 'split'.
 #' @param zInit Integer vector. Sets initial starting values of z. 'zInit'
 #'  is only used when `zInitialize = 'predfined'`. Default NULL.
+#' @param markerGenes Named list. Marker genes for cell types to guide
+#'  initialization. Each element should be a character vector of gene names.
+#'  Names represent cell type labels. Only used when zInitialize = 'split'.
+#'  Example: list("T cells" = c("CD3D", "CD3E"), "B cells" = c("CD19", "MS4A1")).
+#'  Default NULL.
+#' @param priorClustering Integer vector. Prior cluster assignments for cells
+#'  to refine. If provided, will be used as starting point and refined to
+#'  match K clusters. Only used when zInitialize = 'split'. Default NULL.
 #' @param countChecksum Character. An MD5 checksum for the `counts` matrix.
 #'  Default NULL.
 #' @param logfile Character. Messages will be redirected to a file named
@@ -122,8 +130,11 @@ setGeneric("celda_C",
         seed = 12345,
         nchains = 3,
         zInitialize = c("split", "random", "predefined"),
+        adaptiveSubclusters = FALSE,
         countChecksum = NULL,
         zInit = NULL,
+        markerGenes = NULL,
+        priorClustering = NULL,
         logfile = NULL,
         verbose = TRUE) {
     standardGeneric("celda_C")})
@@ -155,8 +166,11 @@ setMethod("celda_C",
         seed = 12345,
         nchains = 3,
         zInitialize = c("split", "random", "predefined"),
+        adaptiveSubclusters = FALSE,
         countChecksum = NULL,
         zInit = NULL,
+        markerGenes = NULL,
+        priorClustering = NULL,
         logfile = NULL,
         verbose = TRUE) {
 
@@ -200,6 +214,8 @@ setMethod("celda_C",
             zInitialize = match.arg(zInitialize),
             countChecksum = countChecksum,
             zInit = zInit,
+            markerGenes = markerGenes,
+            priorClustering = priorClustering,
             logfile = logfile,
             verbose = verbose)
         SingleCellExperiment::altExp(x, altExpName) <- altExp
@@ -234,8 +250,11 @@ setMethod("celda_C",
         seed = 12345,
         nchains = 3,
         zInitialize = c("split", "random", "predefined"),
+        adaptiveSubclusters = FALSE,
         countChecksum = NULL,
         zInit = NULL,
+        markerGenes = NULL,
+        priorClustering = NULL,
         logfile = NULL,
         verbose = TRUE) {
 
@@ -271,8 +290,11 @@ setMethod("celda_C",
             seed = seed,
             nchains = nchains,
             zInitialize = match.arg(zInitialize),
+            adaptiveSubclusters = adaptiveSubclusters,
             countChecksum = countChecksum,
             zInit = zInit,
+            markerGenes = markerGenes,
+            priorClustering = priorClustering,
             logfile = logfile,
             verbose = verbose)
         SingleCellExperiment::altExp(sce, altExpName) <- altExp
@@ -304,8 +326,11 @@ setMethod("celda_C",
     seed,
     nchains,
     zInitialize,
+    adaptiveSubclusters,
     countChecksum,
     zInit,
+    markerGenes,
+    priorClustering,
     logfile,
     verbose) {
 
@@ -331,8 +356,11 @@ setMethod("celda_C",
             earlyStopThreshold = earlyStopThreshold,
             nchains = nchains,
             zInitialize = zInitialize,
+            adaptiveSubclusters = adaptiveSubclusters,
             countChecksum = countChecksum,
             zInit = zInit,
+            markerGenes = markerGenes,
+            priorClustering = priorClustering,
             logfile = logfile,
             verbose = verbose,
             reorder = TRUE)
@@ -355,8 +383,11 @@ setMethod("celda_C",
                 heterogeneityThreshold = heterogeneityThreshold,
                 nchains = nchains,
                 zInitialize = zInitialize,
+                adaptiveSubclusters = adaptiveSubclusters,
                 countChecksum = countChecksum,
                 zInit = zInit,
+                markerGenes = markerGenes,
+                priorClustering = priorClustering,
                 logfile = logfile,
                 verbose = verbose,
                 reorder = TRUE))
@@ -400,8 +431,11 @@ setMethod("celda_C",
     earlyStopThreshold = 0.05,
     nchains = 3,
     zInitialize = c("split", "random", "predefined"),
+    adaptiveSubclusters = FALSE,
     countChecksum = NULL,
     zInit = NULL,
+    markerGenes = NULL,
+    priorClustering = NULL,
     logfile = NULL,
     verbose = TRUE,
     reorder = TRUE) {
@@ -473,7 +507,10 @@ setMethod("celda_C",
       z <- .initializeSplitZ(counts,
         K = K,
         alpha = alpha,
-        beta = beta
+        beta = beta,
+        adaptiveSubclusters = adaptiveSubclusters,
+        markerGenes = markerGenes,
+        priorClustering = priorClustering
       )
     } else {
       z <- .initializeCluster(K,
