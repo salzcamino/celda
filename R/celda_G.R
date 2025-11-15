@@ -306,6 +306,7 @@ setMethod("celda_G",
                      nCores = 1,
                      nchains = 3,
                      yInitialize = c("split", "random", "predefined"),
+                     adaptiveSubclusters = FALSE,
                      countChecksum = NULL,
                      yInit = NULL,
                      logfile = NULL,
@@ -371,7 +372,8 @@ setMethod("celda_G",
         L,
         beta = beta,
         delta = delta,
-        gamma = gamma
+        gamma = gamma,
+        adaptiveSubclusters = adaptiveSubclusters
       )
     } else {
       y <- .initializeCluster(L,
@@ -626,14 +628,33 @@ setMethod("celda_G",
                               lgbeta,
                               lggamma,
                               lgdelta,
-                              doSample = TRUE) {
+                              doSample = TRUE,
+                              geneWeights = NULL) {
+
+  # Apply gene weights if provided
+  # Weight counts by sqrt(weights) to maintain count-like properties
+  if (!is.null(geneWeights)) {
+    # Validate weights
+    if (length(geneWeights) != nG) {
+      stop("Length of geneWeights must equal number of genes (nG)")
+    }
+    if (any(geneWeights < 0)) {
+      stop("Gene weights must be non-negative")
+    }
+
+    # Apply weights to counts using square root to maintain count properties
+    # This weights the contribution of each gene to the likelihood
+    weightedCounts <- counts * sqrt(geneWeights)
+  } else {
+    weightedCounts <- counts
+  }
 
   ## Set variables up front outside of loop
   probs <- matrix(NA, ncol = nG, nrow = L)
   ix <- sample(seq(nG))
   for (i in ix) {
     probs[, i] <- cG_CalcGibbsProbY(index = i,
-      counts = as.numeric(counts[i, ]),
+      counts = as.numeric(weightedCounts[i, ]),
       nTSbyC = nTSByC,
       nbyTS = nByTS,
       nGbyTS = nGByTS,
@@ -652,11 +673,11 @@ setMethod("celda_G",
       y[i] <- .sampleLl(probs[, i])
 
       if (prevY != y[i]) {
-        nTSByC[prevY, ] <- nTSByC[prevY, ] - counts[i, ]
+        nTSByC[prevY, ] <- nTSByC[prevY, ] - weightedCounts[i, ]
         nGByTS[prevY] <- nGByTS[prevY] - 1L
         nByTS[prevY] <- nByTS[prevY] - nByG[i]
 
-        nTSByC[y[i], ] <- nTSByC[y[i], ] + counts[i, ]
+        nTSByC[y[i], ] <- nTSByC[y[i], ] + weightedCounts[i, ]
         nGByTS[y[i]] <- nGByTS[y[i]] + 1L
         nByTS[y[i]] <- nByTS[y[i]] + nByG[i]
       }

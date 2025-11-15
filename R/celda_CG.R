@@ -46,6 +46,13 @@
 #'  a cell population or feature module should be reassigned and another cell
 #'  population or feature module should be split into two clusters. If a split
 #'  occurs, then 'stopIter' will be reset. Default TRUE.
+#' @param featureReweighting Logical. Whether to use adaptive feature weighting
+#'  during gene module clustering. When TRUE, genes with high between-cluster
+#'  variance relative to total variance receive higher weights, improving
+#'  cluster purity. Default FALSE for backward compatibility.
+#' @param reweightInterval Integer. Number of iterations between recalculation
+#'  of gene weights when \code{featureReweighting = TRUE}. Smaller values update
+#'  weights more frequently but increase computational cost. Default 5.
 #' @param nCores Integer. Number of cores to use for parallel split evaluation.
 #'  Set to 1 for sequential processing. Values > 1 enable parallel::mclapply
 #'  for evaluating cluster splits. Default 1.
@@ -101,6 +108,8 @@ setGeneric("celda_CG",
         maxIter = 200,
         splitOnIter = 10,
         splitOnLast = TRUE,
+        featureReweighting = FALSE,
+        reweightInterval = 5,
         nCores = 1,
         seed = 12345,
         nchains = 3,
@@ -133,6 +142,8 @@ setMethod("celda_CG",
         maxIter = 200,
         splitOnIter = 10,
         splitOnLast = TRUE,
+        featureReweighting = FALSE,
+        reweightInterval = 5,
         seed = 12345,
         nchains = 3,
         zInitialize = c("split", "random", "predefined"),
@@ -174,6 +185,8 @@ setMethod("celda_CG",
             maxIter = maxIter,
             splitOnIter = splitOnIter,
             splitOnLast = splitOnLast,
+            featureReweighting = featureReweighting,
+            reweightInterval = reweightInterval,
             seed = seed,
             nchains = nchains,
             zInitialize = match.arg(zInitialize),
@@ -215,6 +228,8 @@ setMethod("celda_CG",
         maxIter = 200,
         splitOnIter = 10,
         splitOnLast = TRUE,
+        featureReweighting = FALSE,
+        reweightInterval = 5,
         seed = 12345,
         nchains = 3,
         zInitialize = c("split", "random", "predefined"),
@@ -250,6 +265,8 @@ setMethod("celda_CG",
             maxIter = maxIter,
             splitOnIter = splitOnIter,
             splitOnLast = splitOnLast,
+            featureReweighting = featureReweighting,
+            reweightInterval = reweightInterval,
             seed = seed,
             nchains = nchains,
             zInitialize = match.arg(zInitialize),
@@ -281,6 +298,8 @@ setMethod("celda_CG",
     maxIter,
     splitOnIter,
     splitOnLast,
+    featureReweighting,
+    reweightInterval,
     seed,
     nchains,
     zInitialize,
@@ -308,6 +327,8 @@ setMethod("celda_CG",
             maxIter = maxIter,
             splitOnIter = splitOnIter,
             splitOnLast = splitOnLast,
+            featureReweighting = featureReweighting,
+            reweightInterval = reweightInterval,
             nchains = nchains,
             zInitialize = zInitialize,
             yInitialize = yInitialize,
@@ -335,6 +356,8 @@ setMethod("celda_CG",
                 maxIter = maxIter,
                 splitOnIter = splitOnIter,
                 splitOnLast = splitOnLast,
+                featureReweighting = featureReweighting,
+                reweightInterval = reweightInterval,
                 nchains = nchains,
                 zInitialize = zInitialize,
                 yInitialize = yInitialize,
@@ -381,9 +404,12 @@ setMethod("celda_CG",
                       maxIter = 200,
                       splitOnIter = 10,
                       splitOnLast = TRUE,
+                      featureReweighting = FALSE,
+                      reweightInterval = 5,
                       nchains = 3,
                       zInitialize = c("split", "random", "predefined"),
                       yInitialize = c("split", "random", "predefined"),
+                      adaptiveSubclusters = FALSE,
                       countChecksum = NULL,
                       zInit = NULL,
                       yInit = NULL,
@@ -469,7 +495,8 @@ setMethod("celda_CG",
         counts,
         K = K,
         alpha = alpha,
-        beta = beta
+        beta = beta,
+        adaptiveSubclusters = adaptiveSubclusters
       )
     } else {
       z <- .initializeCluster(K,
@@ -493,7 +520,8 @@ setMethod("celda_CG",
         L,
         beta = beta,
         delta = delta,
-        gamma = gamma
+        gamma = gamma,
+        adaptiveSubclusters = adaptiveSubclusters
       )
     } else {
       y <- .initializeCluster(L,
@@ -543,6 +571,13 @@ setMethod("celda_CG",
     doCellSplit <- TRUE
     doGeneSplit <- TRUE
     while (iter <= maxIter & numIterWithoutImprovement <= stopIter) {
+      ## Calculate gene weights if feature reweighting is enabled
+      if (featureReweighting && iter %% reweightInterval == 0) {
+        geneWeights <- .calculateGeneWeights(counts, z, y)
+      } else {
+        geneWeights <- NULL
+      }
+
       ## Gibbs sampling for each gene
       lgbeta <- lgamma(seq(0, max(nCP)) + beta)
       nextY <- .cGCalcGibbsProbY(
@@ -559,7 +594,8 @@ setMethod("celda_CG",
         gamma = gamma,
         lgbeta = lgbeta,
         lggamma = lggamma,
-        lgdelta = lgdelta
+        lgdelta = lgdelta,
+        geneWeights = geneWeights
       )
       nTSByCP <- nextY$nTSByC
       nGByTS <- nextY$nGByTS
