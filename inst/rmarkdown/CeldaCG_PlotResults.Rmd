@@ -18,6 +18,13 @@ params:
   runDiffExp: TRUE
   diffExpMethod: "wilcox"
   topMarkers: 10
+  runCellTypeAnnotation: TRUE
+  singleRRef: "HumanPrimaryCellAtlasData"
+  scTypeDB: NULL
+  scTypeTissue: NULL
+  clustifyrRef: NULL
+  scinaMarkers: NULL
+  scCATCHTissue: NULL
 output:
  html_document:
      toc: true
@@ -57,6 +64,13 @@ showSession <- params$showSession
 runDiffExp <- params$runDiffExp
 diffExpMethod <- params$diffExpMethod
 topMarkers <- params$topMarkers
+runCellTypeAnnotation <- params$runCellTypeAnnotation
+singleRRef <- params$singleRRef
+scTypeDB <- params$scTypeDB
+scTypeTissue <- params$scTypeTissue
+clustifyrRef <- params$clustifyrRef
+scinaMarkers <- params$scinaMarkers
+scCATCHTissue <- params$scCATCHTissue
 
 cellAnnotFinal <- NULL
 plotLabels <- c()
@@ -166,6 +180,249 @@ if (!is.null(cellAnnotFinal)) {
     "SingleCellExperiment object via the 'cellAnnot' or 'cellAnnotLabel' ",
     "parameters."
   )
+}
+```
+
+<br><br>
+
+## Automated Cell Type Annotation {.tabset .tabset-fade}
+
+```{r celltype_setup, echo = FALSE, eval = runCellTypeAnnotation, include = FALSE}
+# Run automated cell type annotation using multiple methods
+cellTypeResults <- list()
+
+if (runCellTypeAnnotation) {
+  # Get expression matrix for annotation
+  annotSCE <- altExp(sce, altExpName)
+
+  # 1. SingleR - Reference-based annotation
+  if (!is.null(singleRRef) && requireNamespace("SingleR", quietly = TRUE) &&
+      requireNamespace("celldex", quietly = TRUE)) {
+    tryCatch({
+      # Get reference dataset
+      if (singleRRef == "HumanPrimaryCellAtlasData") {
+        ref <- celldex::HumanPrimaryCellAtlasData()
+      } else if (singleRRef == "BlueprintEncodeData") {
+        ref <- celldex::BlueprintEncodeData()
+      } else if (singleRRef == "MouseRNAseqData") {
+        ref <- celldex::MouseRNAseqData()
+      } else if (singleRRef == "ImmGenData") {
+        ref <- celldex::ImmGenData()
+      } else {
+        ref <- NULL
+      }
+
+      if (!is.null(ref)) {
+        pred <- SingleR::SingleR(
+          test = annotSCE,
+          ref = ref,
+          labels = ref$label.main,
+          assay.type.test = useAssay
+        )
+        colData(annotSCE)$SingleR_labels <- pred$labels
+        colData(annotSCE)$SingleR_scores <- pred$scores[cbind(seq_len(nrow(pred)), match(pred$labels, colnames(pred$scores)))]
+        cellTypeResults$SingleR <- list(labels = pred$labels, method = "SingleR", ref = singleRRef)
+      }
+    }, error = function(e) {
+      message("SingleR annotation failed: ", e$message)
+    })
+  }
+
+  # 2. scType - Marker-based annotation
+  if (!is.null(scTypeDB) && !is.null(scTypeTissue) &&
+      requireNamespace("HGNChelper", quietly = TRUE)) {
+    tryCatch({
+      # Load scType gene sets
+      source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/gene_sets_prepare.R")
+      source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/sctype_score_.R")
+
+      gs_list <- gene_sets_prepare(scTypeDB, scTypeTissue)
+
+      # Get expression matrix
+      es.max <- sctype_score(
+        scRNAseqData = as.matrix(assay(annotSCE, useAssay)),
+        scaled = TRUE,
+        gs = gs_list$gs_positive,
+        gs2 = gs_list$gs_negative
+      )
+
+      # Assign cell types
+      cL_results <- do.call("rbind", lapply(unique(celdaClusters(sce)), function(cl) {
+        es.max.cl <- sort(rowSums(es.max[, celdaClusters(sce) == cl, drop = FALSE]), decreasing = TRUE)
+        data.frame(cluster = cl, type = names(es.max.cl)[1], scores = es.max.cl[1])
+      }))
+
+      sctype_labels <- cL_results$type[match(celdaClusters(sce), cL_results$cluster)]
+      colData(annotSCE)$scType_labels <- sctype_labels
+      cellTypeResults$scType <- list(labels = sctype_labels, method = "scType", tissue = scTypeTissue)
+    }, error = function(e) {
+      message("scType annotation failed: ", e$message)
+    })
+  }
+
+  # 3. clustifyr - Correlation-based annotation
+  if (!is.null(clustifyrRef) && requireNamespace("clustifyr", quietly = TRUE)) {
+    tryCatch({
+      res <- clustifyr::clustify(
+        input = annotSCE,
+        ref_mat = clustifyrRef,
+        cluster_col = "celda_cell_cluster",
+        assay = useAssay
+      )
+
+      clustifyr_labels <- res$type[match(colData(annotSCE)$celda_cell_cluster, rownames(res))]
+      colData(annotSCE)$clustifyr_labels <- clustifyr_labels
+      cellTypeResults$clustifyr <- list(labels = clustifyr_labels, method = "clustifyr")
+    }, error = function(e) {
+      message("clustifyr annotation failed: ", e$message)
+    })
+  }
+
+  # 4. SCINA - Semi-supervised annotation
+  if (!is.null(scinaMarkers) && requireNamespace("SCINA", quietly = TRUE)) {
+    tryCatch({
+      results <- SCINA::SCINA(
+        exp = as.matrix(assay(annotSCE, useAssay)),
+        signatures = scinaMarkers,
+        max_iter = 100,
+        convergence_n = 10,
+        convergence_rate = 0.999,
+        sensitivity_cutoff = 0.9
+      )
+
+      colData(annotSCE)$SCINA_labels <- results$cell_labels
+      cellTypeResults$SCINA <- list(labels = results$cell_labels, method = "SCINA")
+    }, error = function(e) {
+      message("SCINA annotation failed: ", e$message)
+    })
+  }
+
+  # 5. scCATCH - Automated tissue-specific annotation
+  if (!is.null(scCATCHTissue) && requireNamespace("scCATCH", quietly = TRUE)) {
+    tryCatch({
+      # Prepare data for scCATCH
+      obj <- scCATCH::createscCATCH(
+        data = as.matrix(assay(annotSCE, useAssay)),
+        cluster = as.character(celdaClusters(sce))
+      )
+
+      obj <- scCATCH::findmarkergene(
+        object = obj,
+        species = ifelse(grepl("Mouse", scCATCHTissue, ignore.case = TRUE), "Mouse", "Human"),
+        cluster = "All",
+        match_CellMatch = TRUE,
+        cancer = NULL,
+        tissue = scCATCHTissue,
+        cell_min_pct = 0.25,
+        logfc = 0.25,
+        pvalue = 0.05
+      )
+
+      obj <- scCATCH::findcelltype(object = obj)
+
+      scCATCH_labels <- obj@celltype$cell_type[match(celdaClusters(sce), obj@celltype$cluster)]
+      colData(annotSCE)$scCATCH_labels <- scCATCH_labels
+      cellTypeResults$scCATCH <- list(labels = scCATCH_labels, method = "scCATCH", tissue = scCATCHTissue)
+    }, error = function(e) {
+      message("scCATCH annotation failed: ", e$message)
+    })
+  }
+
+  # Update the main SCE object
+  altExp(sce, altExpName) <- annotSCE
+}
+
+cellTypeAvailable <- length(cellTypeResults) > 0
+```
+
+```{r celltype_intro, echo = FALSE, eval = runCellTypeAnnotation && cellTypeAvailable, results = "asis"}
+if (runCellTypeAnnotation && cellTypeAvailable) {
+  cat("Automated cell type annotation was performed using", length(cellTypeResults),
+      "different methods. Each method uses different approaches to assign cell type labels:\n\n")
+
+  if ("SingleR" %in% names(cellTypeResults)) {
+    cat("- **SingleR**: Reference-based annotation using", cellTypeResults$SingleR$ref, "\n")
+  }
+  if ("scType" %in% names(cellTypeResults)) {
+    cat("- **scType**: Marker-based annotation for", cellTypeResults$scType$tissue, "tissue\n")
+  }
+  if ("clustifyr" %in% names(cellTypeResults)) {
+    cat("- **clustifyr**: Correlation-based annotation with reference data\n")
+  }
+  if ("SCINA" %in% names(cellTypeResults)) {
+    cat("- **SCINA**: Semi-supervised annotation using marker gene signatures\n")
+  }
+  if ("scCATCH" %in% names(cellTypeResults)) {
+    cat("- **scCATCH**: Automated tissue-specific annotation for", cellTypeResults$scCATCH$tissue, "\n")
+  }
+  cat("\n")
+}
+```
+
+### Cell Type Annotations on UMAP {.tabset .tabset-fade}
+
+```{r celltype_plots, results = "asis", eval = runCellTypeAnnotation && cellTypeAvailable}
+if (runCellTypeAnnotation && cellTypeAvailable) {
+  for (method in names(cellTypeResults)) {
+    col_name <- paste0(method, "_labels")
+
+    if (col_name %in% colnames(colData(altExp(sce, altExpName)))) {
+      cat(sprintf(tab4, method))
+
+      print(
+        plotSCEDimReduceColData(
+          altExp(sce, altExpName),
+          colorBy = col_name,
+          reducedDim = reducedDimName,
+          labelClusters = TRUE,
+          dotSize = 0.8
+        )
+      )
+
+      cat(space)
+    }
+  }
+} else {
+  if (!runCellTypeAnnotation) {
+    cat("\nCell type annotation was not performed. Set runCellTypeAnnotation = TRUE to enable.\n")
+  } else {
+    cat("\nNo cell type annotation methods succeeded. Check package installation and parameters.\n")
+  }
+}
+```
+
+### Annotation Summary Table
+
+```{r celltype_table, eval = runCellTypeAnnotation && cellTypeAvailable}
+if (runCellTypeAnnotation && cellTypeAvailable) {
+  # Create summary table of annotations
+  summaryData <- data.frame(
+    Cluster = seq_len(K)
+  )
+
+  for (method in names(cellTypeResults)) {
+    col_name <- paste0(method, "_labels")
+    if (col_name %in% colnames(colData(altExp(sce, altExpName)))) {
+      # Get most common annotation for each cluster
+      cluster_annot <- sapply(seq_len(K), function(k) {
+        labels <- colData(altExp(sce, altExpName))[[col_name]][celdaClusters(sce) == k]
+        names(sort(table(labels), decreasing = TRUE))[1]
+      })
+      summaryData[[method]] <- cluster_annot
+    }
+  }
+
+  kable(summaryData,
+        caption = "Cell type annotations for each cluster by different methods") %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                  full_width = FALSE) %>%
+    scroll_box(width = "100%", height = "600px")
+} else {
+  if (!runCellTypeAnnotation) {
+    message("Cell type annotation was not performed.")
+  } else {
+    message("No cell type annotation results available.")
+  }
 }
 ```
 

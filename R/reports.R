@@ -85,6 +85,27 @@
 #'   \code{"wilcox"}.
 #' @param topMarkers Integer. Number of top marker genes to display for each
 #'   cluster in the differential expression tables. Default \code{10}.
+#' @param runCellTypeAnnotation Boolean. Whether to run automated cell type
+#'   annotation using multiple methods. Requires annotation packages to be
+#'   installed. Default \code{TRUE}.
+#' @param singleRRef Character. Reference dataset to use for SingleR annotation.
+#'   Options include \code{"HumanPrimaryCellAtlasData"}, \code{"BlueprintEncodeData"},
+#'   \code{"MouseRNAseqData"}, and \code{"ImmGenData"}. Set to \code{NULL} to
+#'   disable SingleR. Default \code{"HumanPrimaryCellAtlasData"}.
+#' @param scTypeDB Character. URL or path to scType gene set database. Set to
+#'   \code{NULL} to disable scType annotation. Default \code{NULL}.
+#' @param scTypeTissue Character. Tissue type for scType annotation (e.g.,
+#'   \code{"Immune system"}, \code{"Brain"}). Required if \code{scTypeDB} is
+#'   specified. Default \code{NULL}.
+#' @param clustifyrRef Matrix or data.frame. Reference expression matrix for
+#'   clustifyr annotation. Rows are genes, columns are cell types. Set to
+#'   \code{NULL} to disable clustifyr. Default \code{NULL}.
+#' @param scinaMarkers List. Named list of marker gene signatures for SCINA
+#'   annotation. Each element should be a character vector of gene names for
+#'   a cell type. Set to \code{NULL} to disable SCINA. Default \code{NULL}.
+#' @param scCATCHTissue Character. Tissue type for scCATCH annotation (e.g.,
+#'   \code{"Peripheral Blood"}, \code{"Brain"}). Set to \code{NULL} to disable
+#'   scCATCH. Default \code{NULL}.
 #' @return .html file
 #' @rdname reportceldaCG
 #' @examples
@@ -194,7 +215,14 @@ reportCeldaCGPlotResults <-
            showSession = TRUE,
            runDiffExp = TRUE,
            diffExpMethod = "wilcox",
-           topMarkers = 10) {
+           topMarkers = 10,
+           runCellTypeAnnotation = TRUE,
+           singleRRef = "HumanPrimaryCellAtlasData",
+           scTypeDB = NULL,
+           scTypeTissue = NULL,
+           clustifyrRef = NULL,
+           scinaMarkers = NULL,
+           scCATCHTissue = NULL) {
 
     moduleFileName <- NULL
     if (!is.null(moduleFilePrefix)) {
@@ -221,7 +249,14 @@ reportCeldaCGPlotResults <-
         showSession = isTRUE(showSession),
         runDiffExp = isTRUE(runDiffExp),
         diffExpMethod = diffExpMethod,
-        topMarkers = topMarkers
+        topMarkers = topMarkers,
+        runCellTypeAnnotation = isTRUE(runCellTypeAnnotation),
+        singleRRef = singleRRef,
+        scTypeDB = scTypeDB,
+        scTypeTissue = scTypeTissue,
+        clustifyrRef = clustifyrRef,
+        scinaMarkers = scinaMarkers,
+        scCATCHTissue = scCATCHTissue
       ),
       output_file = output_file,
       output_dir = output_dir,
