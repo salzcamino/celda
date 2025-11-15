@@ -220,9 +220,9 @@ for (i in seq_len(L)) {
 
 ### Module Probability Summary {.tabset .tabset-fade}
 
-Celda orders modules by hierarchical clustering and so modules with similar numbers will have more somewhat more similar expression patterns across cells. Module probability plots are shown for groups of modules in each tab to allow for a quick exploration of these patterns across cells. 
+Celda orders modules by hierarchical clustering and so modules with similar numbers will have more somewhat more similar expression patterns across cells. Module probability plots are shown for groups of modules in each tab to allow for a quick exploration of these patterns across cells.
 
-```{r celda_module_tabs, results = "asis", fig.height = 9, fig.width = 10}
+```{r celda_module_tabs, results = "asis"}
 grids <- seq(0, L, by = 16)
 if (tail(grids, 1) != L) {
   grids <- c(grids, L)
@@ -235,7 +235,14 @@ for (i in seq.int(1, length(grids) - 1)) {
   } else {
     label <- paste0("L", modules[1])
   }
+
+  # Calculate dynamic figure height based on number of modules
+  # With ncol=4, we need ceiling(n/4) rows, each ~2.25 units high
+  nrows <- ceiling(length(modules) / 4)
+  fig_height <- max(3, nrows * 2.25)
+
   cat(sprintf(tab4, label))
+  cat(sprintf("\n```{r fig.height=%s, fig.width=10}\n", fig_height))
   print(
     plotDimReduceModule(
       sce,
@@ -246,6 +253,7 @@ for (i in seq.int(1, length(grids) - 1)) {
       modules = modules
     )
   )
+  cat("\n```\n")
   cat(space)
 }
 ```
