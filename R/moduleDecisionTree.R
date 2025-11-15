@@ -206,18 +206,28 @@ buildModuleDecisionTree <- function(x,
 
 #' @title Plot module decision tree
 #' @description Visualizes the hierarchical decision tree of module splitting
-#'  using a dendrogram-style plot.
+#'  using an improved dendrogram-style plot. The visualization shows how modules
+#'  split across different L values with a top-down tree layout, curved edges,
+#'  color-coded nodes by gene density, and clear labeling.
 #' @param x A "moduleDecisionTree" object from
 #'  \link{buildModuleDecisionTree}.
-#' @param labelModules Logical. Whether to label modules at terminal nodes.
-#'  Default TRUE.
-#' @param labelGenes Logical. Whether to show gene counts at nodes.
+#' @param labelModules Logical. Whether to label modules with their module IDs
+#'  (e.g., "M1", "M2"). Default TRUE.
+#' @param labelGenes Logical. Whether to show gene counts below each node.
 #'  Default TRUE.
 #' @param plotType Character. Type of plot: "dendrogram" for a hierarchical
 #'  tree plot, or "network" for a network-style visualization.
 #'  Default "dendrogram".
 #' @param ... Additional parameters passed to plotting functions.
-#' @return A plot of the module decision tree.
+#' @return A plot of the module decision tree. The plot features:
+#'  \itemize{
+#'    \item Top-down layout (higher L values at top)
+#'    \item Curved edges showing parent-child relationships
+#'    \item Color gradient indicating gene density (light to dark blue)
+#'    \item Node sizes proportional to gene counts
+#'    \item Grid lines for easy reading of L values
+#'    \item Module IDs and gene counts labeled
+#'  }
 #' @seealso \link{buildModuleDecisionTree}
 #' @examples
 #' data(celdaGSim)
@@ -264,48 +274,81 @@ plotModuleDecisionTree <- function(x,
     edges <- tree$edges
     lValues <- tree$lValues
 
-    # Set up plot area
-    nLevels <- length(lValues)
-    maxModules <- max(table(nodes$L))
+    # Reverse L values so tree flows top to bottom (high L at top)
+    lValues <- rev(lValues)
+
+    # Calculate hierarchical positions using a better layout algorithm
+    nodePositions <- .calculateTreeLayout(nodes, edges, lValues)
+
+    # Set up plot with better margins
+    oldPar <- graphics::par(mar = c(5, 5, 4, 2))
+    on.exit(graphics::par(oldPar))
+
+    # Calculate plot dimensions
+    xRange <- range(nodePositions$x)
+    xPad <- diff(xRange) * 0.1
+    yRange <- range(nodePositions$y)
+    yPad <- diff(yRange) * 0.15
 
     graphics::plot.new()
-    graphics::plot.window(xlim = c(0, maxModules + 1),
-        ylim = c(min(lValues) - 1, max(lValues) + 1))
-    graphics::title(main = "Module Decision Tree",
-        xlab = "Module Position",
-        ylab = "Number of Modules (L)")
-    graphics::axis(2, at = lValues)
-
-    # Calculate positions for each node
-    nodePositions <- data.frame(
-        nodeId = character(),
-        x = numeric(),
-        y = numeric(),
-        stringsAsFactors = FALSE
+    graphics::plot.window(
+        xlim = c(xRange[1] - xPad, xRange[2] + xPad),
+        ylim = c(yRange[1] - yPad, yRange[2] + yPad)
     )
 
+    # Add title and labels
+    graphics::title(
+        main = "Gene Module Decision Tree",
+        xlab = "",
+        ylab = "Number of Modules (L)",
+        cex.main = 1.3,
+        font.main = 2
+    )
+
+    # Add horizontal grid lines for each L value
     for (L in lValues) {
-        nodesAtL <- nodes[nodes$L == L, ]
-        nNodes <- nrow(nodesAtL)
-        xPos <- seq(1, maxModules, length.out = nNodes)
-
-        for (i in seq_len(nNodes)) {
-            nodePositions <- rbind(nodePositions, data.frame(
-                nodeId = nodesAtL$nodeId[i],
-                x = xPos[i],
-                y = L,
-                stringsAsFactors = FALSE
-            ))
-        }
+        yPos <- nodePositions[nodePositions$L == L, "y"][1]
+        graphics::abline(h = yPos, col = "gray90", lty = 2, lwd = 0.5)
     }
-    rownames(nodePositions) <- nodePositions$nodeId
 
-    # Draw edges
-    for (i in seq_len(nrow(edges))) {
-        fromPos <- nodePositions[edges$from[i], ]
-        toPos <- nodePositions[edges$to[i], ]
-        graphics::segments(fromPos$x, fromPos$y, toPos$x, toPos$y,
-            col = "gray40", lwd = 1.5)
+    # Add L value labels on left
+    for (L in lValues) {
+        yPos <- nodePositions[nodePositions$L == L, "y"][1]
+        graphics::mtext(paste0("L=", L),
+            side = 2,
+            at = yPos,
+            line = 3,
+            cex = 0.8,
+            las = 1)
+    }
+
+    # Color palette - use a better gradient
+    colorPal <- grDevices::colorRampPalette(
+        c("#E3F2FD", "#2196F3", "#0D47A1")
+    )(100)
+
+    # Calculate node sizes based on gene count
+    minSize <- 1.5
+    maxSize <- 4
+    nodeSizes <- minSize + (maxSize - minSize) *
+        (nodes$nGenes - min(nodes$nGenes)) /
+        (max(nodes$nGenes) - min(nodes$nGenes))
+    names(nodeSizes) <- nodes$nodeId
+
+    # Draw edges with curved lines for better visibility
+    if (nrow(edges) > 0) {
+        for (i in seq_len(nrow(edges))) {
+            fromPos <- nodePositions[nodePositions$nodeId == edges$from[i], ]
+            toPos <- nodePositions[nodePositions$nodeId == edges$to[i], ]
+
+            # Draw curved edge
+            .drawCurvedEdge(
+                x0 = fromPos$x, y0 = fromPos$y,
+                x1 = toPos$x, y1 = toPos$y,
+                col = "gray60",
+                lwd = 1.5
+            )
+        }
     }
 
     # Draw nodes
@@ -315,31 +358,147 @@ plotModuleDecisionTree <- function(x,
         x <- nodePositions$x[i]
         y <- nodePositions$y[i]
 
-        # Node color based on size
+        # Color based on gene count
         nGenes <- nodeData$nGenes
-        nodeCol <- grDevices::colorRampPalette(c("lightblue", "darkblue"))(100)[
-            min(100, floor(nGenes / max(nodes$nGenes) * 100) + 1)
-        ]
+        colorIdx <- min(100, max(1, floor(
+            (nGenes - min(nodes$nGenes)) /
+            (max(nodes$nGenes) - min(nodes$nGenes)) * 99) + 1
+        ))
+        nodeCol <- colorPal[colorIdx]
 
-        graphics::points(x, y, pch = 21, bg = nodeCol, cex = 2, col = "black")
+        # Draw node
+        nodeSize <- nodeSizes[nodeId]
+        graphics::points(x, y,
+            pch = 21,
+            bg = nodeCol,
+            cex = nodeSize,
+            col = "gray30",
+            lwd = 1.5)
 
-        # Labels
-        if (labelModules && y == max(lValues)) {
-            graphics::text(x, y, labels = nodeData$moduleLabel,
-                pos = 3, cex = 0.7)
+        # Add module label inside node if requested
+        if (labelModules) {
+            modLabel <- paste0("M", nodeData$moduleLabel)
+            graphics::text(x, y,
+                labels = modLabel,
+                cex = 0.5 + nodeSize * 0.15,
+                col = if (colorIdx > 50) "white" else "black",
+                font = 2)
         }
+
+        # Add gene count as annotation below node
         if (labelGenes) {
-            graphics::text(x, y, labels = nGenes, cex = 0.6, col = "white")
+            graphics::text(x, y - 0.15,
+                labels = paste0(nGenes, " genes"),
+                cex = 0.6,
+                col = "gray30",
+                pos = 1)
         }
     }
 
-    # Add legend
+    # Add informative legend
+    legendText <- c(
+        paste0("Modules: ", min(lValues), " → ", max(lValues)),
+        paste0("Total genes: ", sum(nodes[nodes$L == min(lValues), "nGenes"])),
+        "Node size ~ # genes",
+        "Color: gene density"
+    )
+
     graphics::legend("topright",
-        legend = c("Node size = # genes"),
-        pch = 21,
-        pt.bg = "lightblue",
-        pt.cex = 1.5,
-        bty = "n")
+        legend = legendText,
+        bty = "n",
+        cex = 0.8,
+        text.col = "gray30")
+
+    invisible(nodePositions)
+}
+
+
+#' @keywords internal
+.calculateTreeLayout <- function(nodes, edges, lValues) {
+    # Better tree layout algorithm
+    nodePositions <- data.frame(
+        nodeId = character(),
+        L = integer(),
+        x = numeric(),
+        y = numeric(),
+        stringsAsFactors = FALSE
+    )
+
+    # Assign Y positions (higher L at top)
+    yPositions <- seq(length(lValues), 1, by = -1)
+    names(yPositions) <- lValues
+
+    # Calculate X positions using hierarchical layout
+    for (i in seq_along(lValues)) {
+        L <- lValues[i]
+        nodesAtL <- nodes[nodes$L == L, ]
+        nNodes <- nrow(nodesAtL)
+
+        if (i == 1) {
+            # First level - evenly spaced
+            xPos <- seq(0, nNodes - 1, length.out = nNodes)
+        } else {
+            # Position based on parent positions
+            xPos <- numeric(nNodes)
+            for (j in seq_len(nNodes)) {
+                nodeId <- nodesAtL$nodeId[j]
+                parentId <- nodesAtL$parentNode[j]
+
+                if (!is.na(parentId)) {
+                    # Find parent position
+                    parentX <- nodePositions[nodePositions$nodeId == parentId, "x"]
+                    # Find siblings (nodes with same parent)
+                    siblings <- nodesAtL[nodesAtL$parentNode == parentId, ]
+                    nSiblings <- nrow(siblings)
+                    siblingIdx <- which(siblings$nodeId == nodeId)
+
+                    # Position relative to parent
+                    if (nSiblings == 1) {
+                        xPos[j] <- parentX
+                    } else {
+                        offset <- (siblingIdx - (nSiblings + 1) / 2) * 0.5
+                        xPos[j] <- parentX + offset
+                    }
+                } else {
+                    xPos[j] <- j - 1
+                }
+            }
+        }
+
+        # Add to positions
+        for (j in seq_len(nNodes)) {
+            nodePositions <- rbind(nodePositions, data.frame(
+                nodeId = nodesAtL$nodeId[j],
+                L = L,
+                x = xPos[j],
+                y = yPositions[as.character(L)],
+                stringsAsFactors = FALSE
+            ))
+        }
+    }
+
+    rownames(nodePositions) <- nodePositions$nodeId
+    return(nodePositions)
+}
+
+
+#' @keywords internal
+.drawCurvedEdge <- function(x0, y0, x1, y1, col, lwd) {
+    # Draw a curved bezier-like edge
+    nSteps <- 20
+
+    # Control point for curve
+    midY <- (y0 + y1) / 2
+
+    # Generate curve points
+    t <- seq(0, 1, length.out = nSteps)
+
+    # Quadratic bezier curve
+    xCurve <- (1 - t)^2 * x0 + 2 * (1 - t) * t * ((x0 + x1) / 2) + t^2 * x1
+    yCurve <- (1 - t)^2 * y0 + 2 * (1 - t) * t * midY + t^2 * y1
+
+    # Draw curve as line segments
+    graphics::lines(xCurve, yCurve, col = col, lwd = lwd)
 }
 
 
