@@ -79,6 +79,9 @@ setGeneric("celda_G",
         splitOnIter = 10,
         splitOnLast = TRUE,
         nCores = 1,
+        convergenceMethod = c("simple", "advanced"),
+        convergenceRelTol = 1e-5,
+        checkClusterStability = TRUE,
         seed = 12345,
         nchains = 3,
         yInitialize = c("split", "random", "predefined"),
@@ -106,6 +109,9 @@ setMethod("celda_G",
         splitOnIter = 10,
         splitOnLast = TRUE,
         nCores = 1,
+        convergenceMethod = c("simple", "advanced"),
+        convergenceRelTol = 1e-5,
+        checkClusterStability = TRUE,
         seed = 12345,
         nchains = 3,
         yInitialize = c("split", "random", "predefined"),
@@ -143,6 +149,9 @@ setMethod("celda_G",
             splitOnIter = splitOnIter,
             splitOnLast = splitOnLast,
             nCores = nCores,
+            convergenceMethod = match.arg(convergenceMethod),
+            convergenceRelTol = convergenceRelTol,
+            checkClusterStability = checkClusterStability,
             seed = seed,
             nchains = nchains,
             yInitialize = match.arg(yInitialize),
@@ -172,6 +181,9 @@ setMethod("celda_G",
         splitOnIter = 10,
         splitOnLast = TRUE,
         nCores = 1,
+        convergenceMethod = c("simple", "advanced"),
+        convergenceRelTol = 1e-5,
+        checkClusterStability = TRUE,
         seed = 12345,
         nchains = 3,
         yInitialize = c("split", "random", "predefined"),
@@ -203,6 +215,9 @@ setMethod("celda_G",
             splitOnIter = splitOnIter,
             splitOnLast = splitOnLast,
             nCores = nCores,
+            convergenceMethod = match.arg(convergenceMethod),
+            convergenceRelTol = convergenceRelTol,
+            checkClusterStability = checkClusterStability,
             seed = seed,
             nchains = nchains,
             yInitialize = match.arg(yInitialize),
@@ -229,6 +244,9 @@ setMethod("celda_G",
     splitOnIter,
     splitOnLast,
     nCores,
+    convergenceMethod,
+    convergenceRelTol,
+    checkClusterStability,
     seed,
     nchains,
     yInitialize,
@@ -250,6 +268,9 @@ setMethod("celda_G",
             splitOnIter = splitOnIter,
             splitOnLast = splitOnLast,
             nCores = nCores,
+            convergenceMethod = convergenceMethod,
+            convergenceRelTol = convergenceRelTol,
+            checkClusterStability = checkClusterStability,
             nchains = nchains,
             yInitialize = yInitialize,
             adaptiveSubclusters = adaptiveSubclusters,
@@ -271,6 +292,9 @@ setMethod("celda_G",
                 splitOnIter = splitOnIter,
                 splitOnLast = splitOnLast,
                 nCores = nCores,
+                convergenceMethod = convergenceMethod,
+                convergenceRelTol = convergenceRelTol,
+                checkClusterStability = checkClusterStability,
                 nchains = nchains,
                 yInitialize = yInitialize,
                 adaptiveSubclusters = adaptiveSubclusters,
@@ -309,6 +333,9 @@ setMethod("celda_G",
                      splitOnIter = 10,
                      splitOnLast = TRUE,
                      nCores = 1,
+                     convergenceMethod = "simple",
+                     convergenceRelTol = 1e-5,
+                     checkClusterStability = TRUE,
                      nchains = 3,
                      yInitialize = c("split", "random", "predefined"),
                      adaptiveSubclusters = FALSE,
@@ -416,6 +443,12 @@ setMethod("celda_G",
     iter <- 1L
     numIterWithoutImprovement <- 0L
     doGeneSplit <- TRUE
+
+    # Initialize cluster history for advanced convergence detection
+    # Store last 10 iterations to save memory
+    maxHistorySize <- 10
+    yHistory <- vector("list", maxHistorySize)
+
     while (iter <= maxIter & numIterWithoutImprovement <= stopIter) {
       nextY <- .cGCalcGibbsProbY(
         counts = counts,
@@ -515,12 +548,58 @@ setMethod("celda_G",
         delta = delta,
         gamma = gamma
       )
-      if ((all(tempLl > ll)) | iter == 1) {
-        yBest <- y
-        llBest <- tempLl
-        numIterWithoutImprovement <- 1L
+
+      ## Store cluster assignments in history (circular buffer)
+      historyIdx <- ((iter - 1) %% maxHistorySize) + 1
+      yHistory[[historyIdx]] <- y
+
+      ## Check convergence based on method
+      if (convergenceMethod == "advanced") {
+        # Advanced convergence check
+        convCheck <- .checkConvergence_Advanced(
+          llHistory = ll,
+          zHistory = NULL,  # celda_G doesn't have z
+          yHistory = yHistory,
+          iter = iter,
+          stopIter = stopIter,
+          relTol = convergenceRelTol,
+          checkStability = checkClusterStability,
+          minIter = max(10, stopIter)
+        )
+
+        if (convCheck$converged) {
+          .logMessages(date(),
+            " .... ",
+            convCheck$reason,
+            logfile = logfile,
+            append = TRUE,
+            sep = "",
+            verbose = verbose
+          )
+          # Store best results before breaking
+          yBest <- y
+          llBest <- tempLl
+          ll <- c(ll, tempLl)
+          break
+        }
+
+        # Update simple counter for compatibility with splitting logic
+        if ((all(tempLl > ll)) | iter == 1) {
+          yBest <- y
+          llBest <- tempLl
+          numIterWithoutImprovement <- 1L
+        } else {
+          numIterWithoutImprovement <- numIterWithoutImprovement + 1L
+        }
       } else {
-        numIterWithoutImprovement <- numIterWithoutImprovement + 1L
+        # Simple convergence check (original behavior)
+        if ((all(tempLl > ll)) | iter == 1) {
+          yBest <- y
+          llBest <- tempLl
+          numIterWithoutImprovement <- 1L
+        } else {
+          numIterWithoutImprovement <- numIterWithoutImprovement + 1L
+        }
       }
       ll <- c(ll, tempLl)
 

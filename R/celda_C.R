@@ -189,6 +189,9 @@ setMethod("celda_C",
         reducedDimForSplit = NULL,
         earlyChainStop = TRUE,
         earlyStopThreshold = 0.05,
+        convergenceMethod = c("simple", "advanced"),
+        convergenceRelTol = 1e-5,
+        checkClusterStability = TRUE,
         seed = 12345,
         nchains = 3,
         zInitialize = c("split", "random", "predefined"),
@@ -237,6 +240,9 @@ setMethod("celda_C",
             reducedDimForSplit = reducedDimForSplit,
             earlyChainStop = earlyChainStop,
             earlyStopThreshold = earlyStopThreshold,
+            convergenceMethod = match.arg(convergenceMethod),
+            convergenceRelTol = convergenceRelTol,
+            checkClusterStability = checkClusterStability,
             seed = seed,
             nchains = nchains,
             zInitialize = match.arg(zInitialize),
@@ -277,6 +283,9 @@ setMethod("celda_C",
         reducedDimForSplit = NULL,
         earlyChainStop = TRUE,
         earlyStopThreshold = 0.05,
+        convergenceMethod = c("simple", "advanced"),
+        convergenceRelTol = 1e-5,
+        checkClusterStability = TRUE,
         seed = 12345,
         nchains = 3,
         zInitialize = c("split", "random", "predefined"),
@@ -319,6 +328,9 @@ setMethod("celda_C",
             reducedDimForSplit = reducedDimForSplit,
             earlyChainStop = earlyChainStop,
             earlyStopThreshold = earlyStopThreshold,
+            convergenceMethod = match.arg(convergenceMethod),
+            convergenceRelTol = convergenceRelTol,
+            checkClusterStability = checkClusterStability,
             seed = seed,
             nchains = nchains,
             zInitialize = match.arg(zInitialize),
@@ -357,6 +369,9 @@ setMethod("celda_C",
     reducedDimForSplit,
     earlyChainStop,
     earlyStopThreshold,
+    convergenceMethod,
+    convergenceRelTol,
+    checkClusterStability,
     seed,
     nchains,
     zInitialize,
@@ -390,6 +405,9 @@ setMethod("celda_C",
             reducedDimForSplit = reducedDimForSplit,
             earlyChainStop = earlyChainStop,
             earlyStopThreshold = earlyStopThreshold,
+            convergenceMethod = convergenceMethod,
+            convergenceRelTol = convergenceRelTol,
+            checkClusterStability = checkClusterStability,
             nchains = nchains,
             zInitialize = zInitialize,
             adaptiveSubclusters = adaptiveSubclusters,
@@ -419,6 +437,9 @@ setMethod("celda_C",
                 heterogeneityThreshold = heterogeneityThreshold,
                 useGraphBasedSplit = useGraphBasedSplit,
                 reducedDimForSplit = reducedDimForSplit,
+                convergenceMethod = convergenceMethod,
+                convergenceRelTol = convergenceRelTol,
+                checkClusterStability = checkClusterStability,
                 nchains = nchains,
                 zInitialize = zInitialize,
                 adaptiveSubclusters = adaptiveSubclusters,
@@ -469,6 +490,9 @@ setMethod("celda_C",
     reducedDimForSplit = NULL,
     earlyChainStop = TRUE,
     earlyStopThreshold = 0.05,
+    convergenceMethod = "simple",
+    convergenceRelTol = 1e-5,
+    checkClusterStability = TRUE,
     nchains = 3,
     zInitialize = c("split", "random", "predefined"),
     adaptiveSubclusters = FALSE,
@@ -588,6 +612,11 @@ setMethod("celda_C",
     doCellSplit <- TRUE
     nextSplitIter <- splitOnIter
     splitOccurred <- FALSE
+
+    # Initialize cluster history for advanced convergence detection
+    # Store last 10 iterations to save memory
+    maxHistorySize <- 10
+    zHistory <- vector("list", maxHistorySize)
 
     while (iter <= maxIter & numIterWithoutImprovement <= stopIter) {
       nextZ <- do.call(algorithmFun, list(
@@ -712,14 +741,58 @@ setMethod("celda_C",
         beta = beta
       )
 
-      if ((all(tempLl > ll)) | iter == 1) {
-        zBest <- z
-        llBest <- tempLl
-        numIterWithoutImprovement <- 1L
-      } else {
-        numIterWithoutImprovement <- numIterWithoutImprovement + 1L
-      }
+      ## Store cluster assignments in history (circular buffer)
+      historyIdx <- ((iter - 1) %% maxHistorySize) + 1
+      zHistory[[historyIdx]] <- z
 
+      ## Check convergence based on method
+      if (convergenceMethod == "advanced") {
+        # Advanced convergence check
+        convCheck <- .checkConvergence_Advanced(
+          llHistory = ll,
+          zHistory = zHistory,
+          yHistory = NULL,  # celda_C doesn't have y
+          iter = iter,
+          stopIter = stopIter,
+          relTol = convergenceRelTol,
+          checkStability = checkClusterStability,
+          minIter = max(10, stopIter)
+        )
+
+        if (convCheck$converged) {
+          .logMessages(date(),
+            " .... ",
+            convCheck$reason,
+            logfile = logfile,
+            append = TRUE,
+            sep = "",
+            verbose = verbose
+          )
+          # Store best results before breaking
+          zBest <- z
+          llBest <- tempLl
+          ll <- c(ll, tempLl)
+          break
+        }
+
+        # Update simple counter for compatibility with splitting logic
+        if ((all(tempLl > ll)) | iter == 1) {
+          zBest <- z
+          llBest <- tempLl
+          numIterWithoutImprovement <- 1L
+        } else {
+          numIterWithoutImprovement <- numIterWithoutImprovement + 1L
+        }
+      } else {
+        # Simple convergence check (original behavior)
+        if ((all(tempLl > ll)) | iter == 1) {
+          zBest <- z
+          llBest <- tempLl
+          numIterWithoutImprovement <- 1L
+        } else {
+          numIterWithoutImprovement <- numIterWithoutImprovement + 1L
+        }
+      }
       ll <- c(ll, tempLl)
 
       .logMessages(date(),
