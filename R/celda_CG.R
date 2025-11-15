@@ -529,6 +529,9 @@ setMethod("celda_CG",
                       zInitialize = c("split", "random", "predefined"),
                       yInitialize = c("split", "random", "predefined"),
                       adaptiveSubclusters = FALSE,
+                      useConsensus = FALSE,
+                      consensusMethod = c("cooccurrence", "median"),
+                      minConsensusAgreement = 0.7,
                       countChecksum = NULL,
                       zInit = NULL,
                       yInit = NULL,
@@ -579,6 +582,7 @@ setMethod("celda_CG",
   lggamma <- lgamma(seq(0, nrow(counts) + L) + gamma)
   lgdelta <- c(NA, lgamma((seq(nrow(counts) + L) * delta)))
 
+  allResults <- list()
   bestResult <- NULL
   for (i in allChains) {
     ## Initialize cluster labels
@@ -1001,6 +1005,9 @@ setMethod("celda_CG",
 
     class(result) <- "celda_CG"
 
+    # Store result for potential consensus clustering
+    allResults[[i]] <- result
+
     if (is.null(bestResult) ||
       result$finalLogLik > bestResult$finalLogLik) {
       bestResult <- result
@@ -1014,6 +1021,112 @@ setMethod("celda_CG",
       verbose = verbose
     )
   }
+
+  # Apply consensus clustering if enabled
+  if (useConsensus && nchains > 1) {
+    .logMessages(date(),
+      ".. Computing consensus clustering from",
+      nchains, "chains",
+      logfile = logfile,
+      append = TRUE,
+      verbose = verbose
+    )
+
+    consensus <- .consensusClustering_CG(
+      allChainResults = allResults,
+      method = consensusMethod,
+      minAgreement = minConsensusAgreement
+    )
+
+    # Use consensus assignments
+    zBest <- consensus$z
+    yBest <- consensus$y
+
+    # Store confidence scores
+    zConfidence <- consensus$zConfidence
+    yConfidence <- consensus$yConfidence
+    lowConfidenceCells <- consensus$lowConfidenceCells
+    lowConfidenceGenes <- consensus$lowConfidenceGenes
+
+    .logMessages(date(),
+      paste0(".. Consensus complete. ",
+        length(lowConfidenceCells), " low-confidence cells, ",
+        length(lowConfidenceGenes), " low-confidence genes"),
+      logfile = logfile,
+      append = TRUE,
+      verbose = verbose
+    )
+  } else {
+    # Select best chain based on selection criterion
+    if (selectionCriterion == "combined" && nchains > 1) {
+      .logMessages(date(),
+        ".. Comparing chains using combined validation metrics",
+        logfile = logfile,
+        append = TRUE,
+        verbose = verbose
+      )
+
+      # Calculate validation metrics for all chains
+      chainMetrics <- vector("list", nchains)
+      for (i in allChains) {
+        chainMetrics[[i]] <- .calculateClusterMetrics(
+          counts = counts,
+          z = allResults[[i]]$z,
+          y = allResults[[i]]$y,
+          metrics = c("calinskiHarabasz", "daviesBouldin", "moduleCoherence")
+        )
+      }
+
+      # Normalize log-likelihoods
+      llValues <- sapply(allResults, function(x) x$finalLogLik)
+      minLL <- min(llValues)
+      maxLL <- max(llValues)
+      if (maxLL > minLL) {
+        normalizedLL <- (llValues - minLL) / (maxLL - minLL)
+      } else {
+        normalizedLL <- rep(0.5, length(llValues))
+      }
+
+      # Normalize validation metrics
+      normalizedMetrics <- .normalizeMetrics(chainMetrics)
+
+      # Calculate combined scores
+      combinedScores <- numeric(nchains)
+      for (i in allChains) {
+        combinedScores[i] <- .calculateCombinedScore(
+          logLik = normalizedLL[i],
+          metrics = chainMetrics[[i]],
+          normalizedMetrics = normalizedMetrics[[i]],
+          validationWeight = validationWeight
+        )
+      }
+
+      # Select best chain
+      bestChainIdx <- which.max(combinedScores)
+      bestResult <- allResults[[bestChainIdx]]
+
+      .logMessages(date(),
+        paste0(".. Selected chain ", bestChainIdx,
+               " (combined score: ", round(combinedScores[bestChainIdx], 4),
+               ", log-likelihood: ", round(llValues[bestChainIdx], 2), ")"),
+        logfile = logfile,
+        append = TRUE,
+        verbose = verbose
+      )
+
+      # Store validation metrics in metadata for later use
+      bestResult$validationMetrics <- chainMetrics[[bestChainIdx]]
+    }
+
+    # Use best chain (either from log-likelihood or combined selection)
+    zBest <- bestResult$z
+    yBest <- bestResult$y
+    zConfidence <- NULL
+    yConfidence <- NULL
+    lowConfidenceCells <- integer(0)
+    lowConfidenceGenes <- integer(0)
+  }
+
 
   ## Peform reordering on final Z and Y assigments:
   bestResult <- methods::new("celda_CG",
