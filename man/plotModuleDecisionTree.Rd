@@ -16,10 +16,10 @@ plotModuleDecisionTree(
 \item{x}{A "moduleDecisionTree" object from
 \link{buildModuleDecisionTree}.}
 
-\item{labelModules}{Logical. Whether to label modules at terminal nodes.
-Default TRUE.}
+\item{labelModules}{Logical. Whether to label modules with their module IDs
+(e.g., "M1", "M2"). Default TRUE.}
 
-\item{labelGenes}{Logical. Whether to show gene counts at nodes.
+\item{labelGenes}{Logical. Whether to show gene counts below each node.
 Default TRUE.}
 
 \item{plotType}{Character. Type of plot: "dendrogram" for a hierarchical
@@ -29,11 +29,21 @@ Default "dendrogram".}
 \item{...}{Additional parameters passed to plotting functions.}
 }
 \value{
-A plot of the module decision tree.
+A plot of the module decision tree. The plot features:
+ \itemize{
+   \item Top-down layout (higher L values at top)
+   \item Curved edges showing parent-child relationships
+   \item Color gradient indicating gene density (light to dark blue)
+   \item Node sizes proportional to gene counts
+   \item Grid lines for easy reading of L values
+   \item Module IDs and gene counts labeled
+ }
 }
 \description{
 Visualizes the hierarchical decision tree of module splitting
- using a dendrogram-style plot.
+ using an improved dendrogram-style plot. The visualization shows how modules
+ split across different L values with a top-down tree layout, curved edges,
+ color-coded nodes by gene density, and clear labeling.
 }
 \examples{
 data(celdaGSim)
