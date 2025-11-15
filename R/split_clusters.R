@@ -63,11 +63,25 @@
                       maxClustersToTry = 10,
                       minCell = 3,
                       nCores = 1,
-                      heterogeneityThreshold = 0.3) {
+                      heterogeneityThreshold = 0.3,
+                      useGraphBased = FALSE,
+                      reducedDim = NULL) {
 
   ## Identify clusters to split using heterogeneity filtering
-  zToSplit <- .identifySplitCandidates(counts, z, K,
-    heterogeneityThreshold, minCell)
+  ## Use graph-based method if enabled, otherwise use statistical method
+  if (isTRUE(useGraphBased)) {
+    zToSplit <- .identifySplitCandidates_GraphBased(
+      counts, z, K,
+      reducedDim = reducedDim,
+      minCell = minCell,
+      heterogeneityThreshold = heterogeneityThreshold
+    )
+  } else {
+    zToSplit <- .identifySplitCandidates(
+      counts, z, K,
+      heterogeneityThreshold, minCell
+    )
+  }
   zTa <- tabulate(z, K)
   zNonEmpty <- which(zTa > 0)
 
@@ -254,11 +268,25 @@
                        maxClustersToTry = 10,
                        minCell = 3,
                        nCores = 1,
-                       heterogeneityThreshold = 0.3) {
+                       heterogeneityThreshold = 0.3,
+                       useGraphBased = FALSE,
+                       reducedDim = NULL) {
 
   ## Identify clusters to split using heterogeneity filtering
-  zToSplit <- .identifySplitCandidates(counts, z, K,
-    heterogeneityThreshold, minCell)
+  ## Use graph-based method if enabled, otherwise use statistical method
+  if (isTRUE(useGraphBased)) {
+    zToSplit <- .identifySplitCandidates_GraphBased(
+      counts, z, K,
+      reducedDim = reducedDim,
+      minCell = minCell,
+      heterogeneityThreshold = heterogeneityThreshold
+    )
+  } else {
+    zToSplit <- .identifySplitCandidates(
+      counts, z, K,
+      heterogeneityThreshold, minCell
+    )
+  }
   zTa <- tabulate(z, K)
   zNonEmpty <- which(zTa > 0)
 
