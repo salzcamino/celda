@@ -75,6 +75,16 @@
 #'   Default \code{TRUE}.
 #' @param showSession Boolean. Whether to show the session information at the
 #'   end. Default \code{TRUE}.
+#' @param runDiffExp Boolean. Whether to run differential expression analysis
+#'   to identify marker genes for each cell population cluster. Requires the
+#'   \code{singleCellTK} package. Default \code{TRUE}.
+#' @param diffExpMethod Character. The differential expression method to use.
+#'   Options include \code{"wilcox"} (Wilcoxon rank-sum test), \code{"MAST"},
+#'   \code{"DESeq2"}, \code{"limma"}, and \code{"ANOVA"}. See
+#'   \code{singleCellTK::runFindMarker} for more information. Default
+#'   \code{"wilcox"}.
+#' @param topMarkers Integer. Number of top marker genes to display for each
+#'   cluster in the differential expression tables. Default \code{10}.
 #' @return .html file
 #' @rdname reportceldaCG
 #' @examples
@@ -181,7 +191,10 @@ reportCeldaCGPlotResults <-
            output_dir = ".",
            pdf = FALSE,
            showSetup = TRUE,
-           showSession = TRUE) {
+           showSession = TRUE,
+           runDiffExp = TRUE,
+           diffExpMethod = "wilcox",
+           topMarkers = 10) {
 
     moduleFileName <- NULL
     if (!is.null(moduleFilePrefix)) {
@@ -205,7 +218,10 @@ reportCeldaCGPlotResults <-
         moduleFileName = moduleFileName,
         pdf = isTRUE(pdf),
         showSetup = isTRUE(showSetup),
-        showSession = isTRUE(showSession)
+        showSession = isTRUE(showSession),
+        runDiffExp = isTRUE(runDiffExp),
+        diffExpMethod = diffExpMethod,
+        topMarkers = topMarkers
       ),
       output_file = output_file,
       output_dir = output_dir,

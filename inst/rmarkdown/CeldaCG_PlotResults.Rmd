@@ -15,7 +15,10 @@ params:
   pdf: pdf
   showSetup: showSetup
   showSession: showSession
-output: 
+  runDiffExp: TRUE
+  diffExpMethod: "wilcox"
+  topMarkers: 10
+output:
  html_document:
      toc: true
      toc_float: true
@@ -51,6 +54,9 @@ exactMatch <- params$exactMatch
 moduleFileName <- params$moduleFileName
 pdf <- params$pdf
 showSession <- params$showSession
+runDiffExp <- params$runDiffExp
+diffExpMethod <- params$diffExpMethod
+topMarkers <- params$topMarkers
 
 cellAnnotFinal <- NULL
 plotLabels <- c()
@@ -319,6 +325,135 @@ if (!is.null(features)) {
 }
 ```
 
+
+## Differential Expression Analysis {.tabset .tabset-fade}
+
+```{r diffexp_setup, echo = FALSE, eval = runDiffExp, include = FALSE}
+# Run differential expression analysis to find cluster markers
+if (runDiffExp) {
+  # Find markers for each cell population cluster
+  tryCatch({
+    sce <- runFindMarker(
+      inSCE = sce,
+      useAssay = useAssay,
+      cluster = "celda_cell_cluster",
+      method = diffExpMethod,
+      log2fcThreshold = 0.25
+    )
+    deResults <- metadata(sce)$findMarker
+    deAvailable <- TRUE
+  }, error = function(e) {
+    message("Differential expression analysis failed: ", e$message)
+    deAvailable <- FALSE
+  })
+} else {
+  deAvailable <- FALSE
+}
+```
+
+```{r diffexp_results, echo = FALSE, eval = runDiffExp && exists("deAvailable") && deAvailable, results = "asis"}
+if (runDiffExp && exists("deAvailable") && deAvailable) {
+  cat("Differential expression analysis was performed using the **", diffExpMethod,
+      "** method to identify marker genes for each of the ", K,
+      " cell populations identified by celda_CG. The tables below show the top ",
+      topMarkers, " marker genes for each cluster ranked by statistical significance.\n\n")
+}
+```
+
+### Top Marker Genes {.tabset .tabset-fade}
+
+```{r diffexp_tables, results = "asis", eval = runDiffExp && exists("deAvailable") && deAvailable}
+if (runDiffExp && exists("deAvailable") && deAvailable && !is.null(deResults)) {
+  for (i in seq_len(K)) {
+    cat(sprintf(tab4, paste0("Cluster ", i)))
+
+    # Get top markers for this cluster
+    clusterName <- paste0("celda_cell_cluster_", i)
+    if (clusterName %in% names(deResults)) {
+      clusterMarkers <- deResults[[clusterName]]
+
+      # Sort by adjusted p-value and select top markers
+      clusterMarkers <- clusterMarkers[order(clusterMarkers$fdr), ]
+      topGenes <- head(clusterMarkers, topMarkers)
+
+      # Create a clean table for display
+      displayTable <- data.frame(
+        Gene = rownames(topGenes),
+        Log2FC = round(topGenes$Log2_FC, 3),
+        Pvalue = formatC(topGenes$Pvalue, format = "e", digits = 2),
+        FDR = formatC(topGenes$fdr, format = "e", digits = 2)
+      )
+
+      print(
+        kable(displayTable,
+              row.names = FALSE,
+              caption = paste0("Top ", topMarkers, " marker genes for Cluster ", i)) %>%
+          kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                       full_width = FALSE)
+      )
+    } else {
+      cat("\nNo differential expression results available for this cluster.\n")
+    }
+    cat(space)
+  }
+} else {
+  if (!runDiffExp) {
+    cat("\nDifferential expression analysis was not performed. ",
+        "Set runDiffExp = TRUE to enable this analysis.\n")
+  } else {
+    cat("\nDifferential expression analysis was not available or failed.\n")
+  }
+}
+```
+
+### Marker Gene Heatmap
+
+```{r diffexp_heatmap, fig.height = 12, fig.width = 10, eval = runDiffExp && exists("deAvailable") && deAvailable}
+if (runDiffExp && exists("deAvailable") && deAvailable && !is.null(deResults)) {
+  # Collect top markers from all clusters
+  allTopMarkers <- c()
+  for (i in seq_len(K)) {
+    clusterName <- paste0("celda_cell_cluster_", i)
+    if (clusterName %in% names(deResults)) {
+      clusterMarkers <- deResults[[clusterName]]
+      clusterMarkers <- clusterMarkers[order(clusterMarkers$fdr), ]
+      topGenes <- head(rownames(clusterMarkers), min(5, topMarkers))
+      allTopMarkers <- c(allTopMarkers, topGenes)
+    }
+  }
+
+  # Remove duplicates and limit total markers
+  allTopMarkers <- unique(allTopMarkers)
+  allTopMarkers <- head(allTopMarkers, 50)
+
+  if (length(allTopMarkers) > 0) {
+    # Create heatmap of top markers across all cells
+    print(
+      plotSCEHeatmap(
+        inSCE = sce,
+        useAssay = useAssay,
+        featureIndex = allTopMarkers,
+        colDataName = "celda_cell_cluster",
+        featureIndexBy = displayName,
+        rowDataName = NULL,
+        scale = "row",
+        trim = c(-2, 2),
+        title = paste0("Top Marker Genes (max 5 per cluster)")
+      )
+    )
+  } else {
+    message("No marker genes available for heatmap.")
+  }
+} else {
+  if (!runDiffExp) {
+    message("Differential expression analysis was not performed.")
+  } else {
+    message("Differential expression analysis was not available or failed.")
+  }
+}
+```
+
+<br><br>
 
 ## Overview Heatmaps {.tabset}
 Overview heatmaps can be used to visualize the relationship between modules and cell populations at high level.
