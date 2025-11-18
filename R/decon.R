@@ -72,8 +72,10 @@
 #'  \link[withr]{with_seed} are made.
 #' @param nCores Integer. Number of CPU cores to use for parallel processing
 #'  of batches. When multiple batches are present, they can be processed
-#'  independently on separate cores. Values > 1 will use parallel::mclapply
-#'  (not available on Windows). Default \code{1} (no parallelization).
+#'  independently on separate cores. Uses cross-platform parallelization via
+#'  the future framework (works on Windows, macOS, and Linux). If future package
+#'  is not available, falls back to parallel::mclapply on Unix systems.
+#'  Default \code{1} (no parallelization).
 #' @param nThreads Integer. Number of threads to use for UMAP dimensionality
 #'  reduction when estimating cell clusters (only used when z is not provided).
 #'  Default \code{1}.
@@ -573,7 +575,7 @@ setMethod(
     return(list(batch = bat, result = res))
   }
 
-  ## Run batches in parallel or serial
+  ## Run batches in parallel or serial (cross-platform via future framework)
   if (nCores > 1 && length(batchIndex) > 1) {
     .logMessages(
       date(),
@@ -582,10 +584,8 @@ setMethod(
       append = TRUE,
       verbose = verbose
     )
-    batchResults <- parallel::mclapply(batchIndex, processBatch, mc.cores = nCores)
-  } else {
-    batchResults <- lapply(batchIndex, processBatch)
   }
+  batchResults <- .safeParallelLapply(batchIndex, processBatch, nCores = nCores)
 
   ## Aggregate results from all batches
   for (batchRes in batchResults) {

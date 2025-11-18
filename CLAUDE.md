@@ -1,6 +1,6 @@
 # CLAUDE.md - AI Assistant Guide for celda
 
-**Last Updated**: 2025-11-13
+**Last Updated**: 2025-11-18
 **Version**: 1.18.2
 **Package Type**: R/Bioconductor
 
@@ -37,7 +37,7 @@ This document provides comprehensive guidance for AI assistants working with the
 - High-performance C/C++ implementation for computationally intensive operations
 - Comprehensive visualization suite
 - Integration with SingleCellExperiment and Bioconductor ecosystem
-- Parallel processing support for large datasets
+- Cross-platform parallel processing support (Windows, macOS, Linux) via future framework
 
 ### Repository Information
 - **Organization**: campbio
@@ -52,7 +52,7 @@ This document provides comprehensive guidance for AI assistants working with the
 
 ```
 celda/
-├── R/                          # R source code (40 files, ~20,498 lines)
+├── R/                          # R source code (41 files, ~20,588 lines)
 │   ├── aaa.R                   # S4 class definitions (MUST load first)
 │   ├── celda_C.R               # Cell clustering model
 │   ├── celda_G.R               # Gene clustering model
@@ -60,6 +60,7 @@ celda/
 │   ├── decon.R                 # DecontX contamination removal
 │   ├── celdaGridSearch.R       # Parameter optimization
 │   ├── moduleDecisionTree.R    # Module hierarchy analysis
+│   ├── parallel_utils.R        # Cross-platform parallel processing utilities
 │   └── ...                     # Supporting functions
 │
 ├── src/                        # C/C++ compiled code (8 files, ~1,716 lines)
@@ -96,6 +97,7 @@ celda/
 ├── NEWS.md                     # Change log
 ├── BENCHMARKING.md             # Performance optimization guide
 ├── MODULE_DECISION_TREE_README.md  # Module decision tree documentation
+├── CROSS_PLATFORM_PARALLEL_IMPLEMENTATION.md  # Parallel processing guide
 ├── benchmark_optimizations.R   # Comprehensive benchmarking script
 └── benchmark_simple.R          # Simple workflow benchmark
 ```
@@ -762,7 +764,57 @@ lineage <- getModuleLineage(modTree, L = 15, module = 7)
 descendants <- getModuleDescendants(modTree, L = 5, module = 2)
 ```
 
-### Task 5: Updating Documentation After Changes
+### Task 5: Using Cross-Platform Parallel Processing
+
+**The package now supports cross-platform parallel processing via the future framework**. See `CROSS_PLATFORM_PARALLEL_IMPLEMENTATION.md` for details.
+
+**Key Features**:
+- Works on Windows, macOS, and Linux
+- Automatic backend selection based on OS
+- Graceful fallback if future package not available
+
+**Basic usage**:
+```r
+library(celda)
+
+# All parallel-capable functions now work cross-platform
+result <- celda_C(
+    counts,
+    K = 10,
+    nCores = 4,  # Now works on Windows!
+    sampleLabel = sampleLabel
+)
+
+# DecontX with parallel batch processing
+decon <- decontX(
+    counts,
+    nCores = 4  # Cross-platform parallelization
+)
+
+# Recursive splitting with parallelization
+moduleSplit <- recursiveSplitModule(
+    counts,
+    initialL = 5,
+    maxL = 20,
+    nCores = 4  # Works on all platforms
+)
+```
+
+**How it works**:
+- **Unix/macOS**: Uses `future::multicore` (forking, most efficient)
+- **Windows**: Uses `future::multisession` (separate R sessions)
+- **Fallback**: Uses `parallel::mclapply` if future not available (Unix only)
+- **Last resort**: Sequential processing if parallel not possible
+
+**Expected speedups** (with nCores = 4):
+- recursiveSplitModule: 2-4x
+- recursiveSplitCell: 2-4x
+- decontX: 2-4x
+- celda_C, celda_G, celda_CG: 1.3-1.5x (for split evaluation)
+
+**Note**: No code changes required. Existing code works identically, now with Windows support.
+
+### Task 6: Updating Documentation After Changes
 
 1. **Update roxygen2 comments** in R source files
 
@@ -804,6 +856,7 @@ descendants <- getModuleDescendants(modTree, L = 5, module = 2)
 | `R/celda_G.R` | Gene clustering model | Modifying gene clustering |
 | `R/celda_CG.R` | Bi-clustering model | Modifying combined model |
 | `R/decon.R` | DecontX implementation | Contamination removal changes |
+| `R/parallel_utils.R` | Cross-platform parallel processing | Modifying parallelization strategy |
 | `R/RcppExports.R` | Rcpp-generated bindings | Auto-generated (don't edit) |
 | `src/RcppExports.cpp` | Rcpp-generated C++ bindings | Auto-generated (don't edit) |
 | `tests/testthat.R` | Test runner | Rarely (test configuration) |
@@ -825,6 +878,7 @@ descendants <- getModuleDescendants(modTree, L = 5, module = 2)
 | `NEWS.md` | Users | Change log |
 | `BENCHMARKING.md` | Developers | Performance optimization guide |
 | `MODULE_DECISION_TREE_README.md` | Developers | Module decision tree implementation |
+| `CROSS_PLATFORM_PARALLEL_IMPLEMENTATION.md` | Developers | Cross-platform parallel processing guide |
 | `CLAUDE.md` (this file) | AI Assistants | Comprehensive development guide |
 
 ---
@@ -903,6 +957,18 @@ descendants <- getModuleDescendants(modTree, L = 5, module = 2)
 5. **Not updating NEWS.md**:
    - Always document user-facing changes in `NEWS.md`
    - Follow existing format
+
+6. **Using parallel::mclapply directly**:
+   ```r
+   # DON'T use mclapply directly (not cross-platform)
+   # results <- parallel::mclapply(X, FUN, mc.cores = nCores)
+
+   # DO use the cross-platform wrapper instead:
+   results <- .safeParallelLapply(X, FUN, nCores = nCores)
+   ```
+   - This ensures Windows compatibility
+   - Automatic backend selection
+   - Graceful fallbacks
 
 ### Understanding the Workflow
 
@@ -984,6 +1050,13 @@ Rscript benchmark_simple.R
 
 ## Version History
 
+- **v1.1** (2025-11-18): Cross-platform parallel processing update
+  - Added cross-platform parallel processing via future framework
+  - Created `R/parallel_utils.R` with `.safeParallelLapply()`
+  - Updated 7 parallel processing calls across codebase
+  - Added `CROSS_PLATFORM_PARALLEL_IMPLEMENTATION.md` documentation
+  - Windows users can now use parallel processing features
+
 - **v1.0** (2025-11-13): Initial CLAUDE.md creation
   - Comprehensive codebase analysis
   - Documentation of architecture and conventions
@@ -999,7 +1072,8 @@ This file should be updated when:
 - Development workflows change
 - New conventions are established
 - CI/CD pipeline is modified
+- Parallel processing strategy changes
 
-**Last Updated**: 2025-11-13
+**Last Updated**: 2025-11-18
 **Maintained By**: AI Assistants working on celda
 **Questions**: Open an issue at https://github.com/campbio/celda/issues

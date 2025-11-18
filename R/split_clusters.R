@@ -86,11 +86,11 @@
     ))
   }
 
-  ## Loop through each split-able Z and perform split (with parallel option)
+  ## Loop through each split-able Z and perform split (cross-platform parallel)
   parallelSplitThreshold <- 5
-  if (nCores > 1 && length(zToSplit) >= parallelSplitThreshold) {
-    # Use parallel processing
-    clustSplit <- parallel::mclapply(zToSplit, function(i) {
+  if (length(zToSplit) >= parallelSplitThreshold) {
+    # Use cross-platform parallel processing via future framework
+    clustSplitResults <- .safeParallelLapply(zToSplit, function(i) {
       clustLabel <- .celda_C(
         counts[, z == i],
         K = 2,
@@ -103,16 +103,15 @@
         seed = NULL  # Different random seed per worker
       )
       return(as.integer(celdaClusters(clustLabel)$z))
-    }, mc.cores = nCores)
+    }, nCores = nCores)
 
     # Convert list to named list indexed by cluster
-    names(clustSplit) <- as.character(zToSplit)
+    names(clustSplitResults) <- as.character(zToSplit)
     # Expand to full K length
-    clustSplitFull <- vector("list", K)
+    clustSplit <- vector("list", K)
     for (idx in seq_along(zToSplit)) {
-      clustSplitFull[[zToSplit[idx]]] <- clustSplit[[idx]]
+      clustSplit[[zToSplit[idx]]] <- clustSplitResults[[idx]]
     }
-    clustSplit <- clustSplitFull
   } else {
     # Sequential processing
     clustSplit <- vector("list", K)
@@ -277,11 +276,11 @@
     ))
   }
 
-  ## Loop through each split-able Z and perform split (with parallel option)
+  ## Loop through each split-able Z and perform split (cross-platform parallel)
   parallelSplitThreshold <- 5
-  if (nCores > 1 && length(zToSplit) >= parallelSplitThreshold) {
-    # Use parallel processing
-    clustSplit <- parallel::mclapply(zToSplit, function(i) {
+  if (length(zToSplit) >= parallelSplitThreshold) {
+    # Use cross-platform parallel processing via future framework
+    clustSplitResults <- .safeParallelLapply(zToSplit, function(i) {
       clustLabel <- .celda_C(counts[, z == i],
         K = 2,
         zInitialize = "random",
@@ -293,16 +292,15 @@
         seed = NULL
       )
       return(as.integer(celdaClusters(clustLabel)$z))
-    }, mc.cores = nCores)
+    }, nCores = nCores)
 
     # Convert list to named list indexed by cluster
-    names(clustSplit) <- as.character(zToSplit)
+    names(clustSplitResults) <- as.character(zToSplit)
     # Expand to full K length
-    clustSplitFull <- vector("list", K)
+    clustSplit <- vector("list", K)
     for (idx in seq_along(zToSplit)) {
-      clustSplitFull[[zToSplit[idx]]] <- clustSplit[[idx]]
+      clustSplit[[zToSplit[idx]]] <- clustSplitResults[[idx]]
     }
-    clustSplit <- clustSplitFull
   } else {
     # Sequential processing
     clustSplit <- vector("list", K)
@@ -544,11 +542,11 @@
     ))
   }
 
-  ## Loop through each split-able Y and perform split (with parallel option)
+  ## Loop through each split-able Y and perform split (cross-platform parallel)
   parallelSplitThreshold <- 5
-  if (nCores > 1 && length(yToSplit) >= parallelSplitThreshold) {
-    # Use parallel processing
-    clustSplit <- parallel::mclapply(yToSplit, function(i) {
+  if (length(yToSplit) >= parallelSplitThreshold) {
+    # Use cross-platform parallel processing via future framework
+    clustSplitResults <- .safeParallelLapply(yToSplit, function(i) {
       clustLabel <- .celda_G(tempNGByCP[y == i, ],
         L = 2,
         yInitialize = "random",
@@ -560,16 +558,15 @@
         seed = NULL
       )
       return(as.integer(celdaClusters(clustLabel)$y))
-    }, mc.cores = nCores)
+    }, nCores = nCores)
 
     # Convert list to named list indexed by cluster
-    names(clustSplit) <- as.character(yToSplit)
+    names(clustSplitResults) <- as.character(yToSplit)
     # Expand to full L length
-    clustSplitFull <- vector("list", L)
+    clustSplit <- vector("list", L)
     for (idx in seq_along(yToSplit)) {
-      clustSplitFull[[yToSplit[idx]]] <- clustSplit[[idx]]
+      clustSplit[[yToSplit[idx]]] <- clustSplitResults[[idx]]
     }
-    clustSplit <- clustSplitFull
   } else {
     # Sequential processing
     clustSplit <- vector("list", L)
@@ -769,9 +766,9 @@
 
   ## Loop through each split-able y and find best split (with parallel option)
   parallelSplitThreshold <- 5
-  if (nCores > 1 && length(yToSplit) >= parallelSplitThreshold) {
-    # Use parallel processing
-    clustSplit <- parallel::mclapply(yToSplit, function(i) {
+  if (length(yToSplit) >= parallelSplitThreshold) {
+    # Use cross-platform parallel processing via future framework
+    clustSplitResults <- .safeParallelLapply(yToSplit, function(i) {
       clustLabel <- .celda_G(counts[y == i, ],
         L = 2,
         yInitialize = "random",
@@ -783,16 +780,15 @@
         seed = NULL
       )
       return(as.integer(celdaClusters(clustLabel)$y))
-    }, mc.cores = nCores)
+    }, nCores = nCores)
 
     # Convert list to named list indexed by cluster
-    names(clustSplit) <- as.character(yToSplit)
+    names(clustSplitResults) <- as.character(yToSplit)
     # Expand to full L length
-    clustSplitFull <- vector("list", L)
+    clustSplit <- vector("list", L)
     for (idx in seq_along(yToSplit)) {
-      clustSplitFull[[yToSplit[idx]]] <- clustSplit[[idx]]
+      clustSplit[[yToSplit[idx]]] <- clustSplitResults[[idx]]
     }
-    clustSplit <- clustSplitFull
   } else {
     # Sequential processing
     clustSplit <- vector("list", L)

@@ -44,8 +44,10 @@
 #'  split into two clusters. If a split occurs, then `stopIter` will be reset.
 #'  Default TRUE.
 #' @param nCores Integer. Number of cores to use for parallel split evaluation.
-#'  Set to 1 for sequential processing. Values > 1 enable parallel::mclapply
-#'  for evaluating cluster splits. Default 1.
+#'  Set to 1 for sequential processing. Uses cross-platform parallelization via
+#'  the future framework (works on Windows, macOS, and Linux) for evaluating
+#'  cluster splits. If future package is not available, falls back to
+#'  parallel::mclapply on Unix systems. Default 1.
 #' @param splitAdaptive Logical. If TRUE, adaptively adjust split evaluation
 #'  frequency based on clustering stability. This can significantly reduce
 #'  computation time while maintaining clustering quality. Default TRUE.
