@@ -47,8 +47,10 @@
 #'  population or feature module should be split into two clusters. If a split
 #'  occurs, then 'stopIter' will be reset. Default TRUE.
 #' @param nCores Integer. Number of cores to use for parallel split evaluation.
-#'  Set to 1 for sequential processing. Values > 1 enable parallel::mclapply
-#'  for evaluating cluster splits. Default 1.
+#'  Set to 1 for sequential processing. Uses cross-platform parallelization via
+#'  the future framework (works on Windows, macOS, and Linux) for evaluating
+#'  cluster splits. If future package is not available, falls back to
+#'  parallel::mclapply on Unix systems. Default 1.
 #' @param seed Integer. Passed to \link[withr]{with_seed}. For reproducibility,
 #'  a default value of 12345 is used. If NULL, no calls to
 #'  \link[withr]{with_seed} are made.

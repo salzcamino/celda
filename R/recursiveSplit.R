@@ -35,12 +35,8 @@
     }
   }
 
-  # Run splits in parallel or serial
-  if (nCores > 1 && length(zToSplit) > 1) {
-    results <- parallel::mclapply(zToSplit, testSplit, mc.cores = nCores)
-  } else {
-    results <- lapply(zToSplit, testSplit)
-  }
+  # Run splits in parallel or serial (cross-platform via future framework)
+  results <- .safeParallelLapply(zToSplit, testSplit, nCores = nCores)
 
   # Find best split
   bestLl <- -Inf
@@ -93,12 +89,8 @@
     }
   }
 
-  # Run splits in parallel or serial
-  if (nCores > 1 && length(yToSplit) > 1) {
-    results <- parallel::mclapply(yToSplit, testSplit, mc.cores = nCores)
-  } else {
-    results <- lapply(yToSplit, testSplit)
-  }
+  # Run splits in parallel or serial (cross-platform via future framework)
+  results <- .safeParallelLapply(yToSplit, testSplit, nCores = nCores)
 
   # Find best split
   bestLl <- -Inf
@@ -172,8 +164,10 @@
 #'  a default value of 12345 is used. If NULL, no calls to
 #'  \link[withr]{with_seed} are made.
 #' @param nCores Integer. Number of CPU cores to use for parallel processing
-#'  when testing cell population splits. Values > 1 will use parallel::mclapply
-#'  (not available on Windows). Default \code{1} (no parallelization).
+#'  when testing cell population splits. Uses cross-platform parallelization via
+#'  the future framework (works on Windows, macOS, and Linux). If future package
+#'  is not available, falls back to parallel::mclapply on Unix systems.
+#'  Default \code{1} (no parallelization).
 #' @param perplexity Logical. Whether to calculate perplexity for each model.
 #'  If FALSE, then perplexity can be calculated later with
 #'  \link{resamplePerplexity}. Default TRUE.
@@ -1027,8 +1021,10 @@ setMethod("recursiveSplitCell",
 #'  a default value of 12345 is used. If NULL, no calls to
 #'  \link[withr]{with_seed} are made.
 #' @param nCores Integer. Number of CPU cores to use for parallel processing
-#'  when testing module splits. Values > 1 will use parallel::mclapply (not
-#'  available on Windows). Default \code{1} (no parallelization).
+#'  when testing module splits. Uses cross-platform parallelization via
+#'  the future framework (works on Windows, macOS, and Linux). If future package
+#'  is not available, falls back to parallel::mclapply on Unix systems.
+#'  Default \code{1} (no parallelization).
 #' @param perplexity Logical. Whether to calculate perplexity for each model.
 #'  If FALSE, then perplexity can be calculated later with
 #'  \link{resamplePerplexity}. Default \code{TRUE}.
